@@ -1,6 +1,8 @@
-# Health Dashboard
+# Life Dashboard
 
-Локальный дашборд здоровья для данных Xiaomi Body Scale из Obsidian Vault.
+Локальный сайт для личных данных и привычек. Текущие разделы: здоровье из Xiaomi Body Scale, деньги из `Money.md` и счетчик отношений.
+
+Планируемые будущие разделы: спорт и другие области жизни.
 
 ## Запуск
 
@@ -19,18 +21,35 @@ HOST=0.0.0.0 npm run dev
 
 Затем откройте `http://<ip-адрес-mac>:5000` на другом устройстве.
 
-## Источник данных
+## Источники данных
 
-По умолчанию сервер читает:
+По умолчанию сервер читает данные здоровья:
 
 ```text
 /Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Health/Xiaomi Body Scale
 ```
 
-Путь можно переопределить:
+Файл денег:
+
+```text
+/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Personal/Management/Money.md
+```
+
+Пути можно переопределить:
 
 ```bash
 HEALTH_DATA_DIR="/path/to/Xiaomi Body Scale" npm run dev
+MONEY_DATA_FILE="/path/to/Money.md" npm run dev
 ```
 
-Сервер следит за обновлениями JSON/CSV/Markdown в этой папке и сообщает интерфейсу о новых данных через WebSocket.
+Сервер следит за обновлениями JSON/CSV/Markdown здоровья и файла денег, затем сообщает интерфейсу о новых данных через WebSocket.
+
+## Worktrees
+
+Для отдельных задач используйте worktree внутри корня проекта:
+
+```bash
+git worktree add -b codex/<task-slug> .worktrees/<task-slug> main
+```
+
+Папка `.worktrees/` добавлена в `.gitignore`.

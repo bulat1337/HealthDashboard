@@ -16,6 +16,9 @@ const DEFAULT_DATA_DIR =
 const DATA_DIR = process.env.HEALTH_DATA_DIR || DEFAULT_DATA_DIR;
 const DATA_FILE =
   process.env.HEALTH_DATA_FILE || path.join(DATA_DIR, "xiaomi-body-scale-data.json");
+const DEFAULT_MONEY_FILE =
+  "/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Personal/Management/Money.md";
+const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
 const PORT = Number(process.env.PORT || 5000);
 const HOST = process.env.HOST || "127.0.0.1";
 const isProduction = process.env.NODE_ENV === "production";
@@ -139,6 +142,58 @@ type DashboardData = {
   measurements: NormalizedMeasurement[];
   stats: Record<string, Record<string, MetricStats>>;
   weeklyTrendsFromUi: unknown[];
+  money: MoneyData;
+};
+
+type MoneyStatus = "ready" | "missing" | "error";
+
+type MoneyRecord = {
+  rowId: number;
+  date: string;
+  dateIso: string;
+  totalAmount: number | null;
+  freeAmount: number | null;
+  reserveAmount: number | null;
+  creditCardDebt: number | null;
+  rentPaid: boolean | null;
+};
+
+type MoneyEvent = {
+  rowId: number;
+  bank: string;
+  date: string;
+  dateIso: string;
+  title: string;
+  daysFromToday: number;
+};
+
+type MoneySummary = {
+  recordCount: number;
+  firstDateIso: string | null;
+  lastDateIso: string | null;
+  totalChange: number | null;
+  freeChange: number | null;
+  reserveChange: number | null;
+  creditCardDebtChange: number | null;
+  freeShare: number | null;
+  debtToTotalShare: number | null;
+};
+
+type MoneyData = {
+  status: MoneyStatus;
+  sourceFile: string;
+  sourceMtimeMs: number | null;
+  lastLoadError: string | null;
+  monthlyIncome: number | null;
+  rentMonthly: number | null;
+  dianaMoney: number | null;
+  manualCreditCardDebtDiana: number | null;
+  records: MoneyRecord[];
+  latestRecord: MoneyRecord | null;
+  previousRecord: MoneyRecord | null;
+  events: MoneyEvent[];
+  upcomingEvents: MoneyEvent[];
+  summary: MoneySummary;
 };
 
 const METRIC_LABELS: Record<string, string> = {
@@ -229,6 +284,260 @@ function asNumber(value: unknown): number | null {
 function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function parseMoneyAmount(value: string | undefined): number | null {
+  const raw = value?.trim() ?? "";
+  if (!raw || raw === "-" || raw === "—") return null;
+
+  const compact = raw
+    .replace(/₽/g, "")
+    .replace(/руб(?:\.|лей|ля|ль)?/gi, "")
+    .replace(/['’\s]/g, "")
+    .replace(/[~≈]/g, "");
+  const match = compact.match(/-?\d+(?:[.,]\d+)?/);
+  if (!match) return null;
+
+  const numeric = Number(match[0].replace(",", "."));
+  if (!Number.isFinite(numeric)) return null;
+  const lower = compact.toLowerCase();
+  const multiplier = lower.includes("k") || lower.includes("к") ? 1000 : 1;
+  return Math.round(numeric * multiplier);
+}
+
+function parseMoneyDate(date: string | undefined): string | null {
+  const match = date?.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const rawYear = Number(match[3]);
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function daysFromToday(dateIso: string): number {
+  const [year, month, day] = dateIso.split("-").map(Number);
+  const eventDate = Date.UTC(year, month - 1, day);
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((eventDate - today) / 86400000);
+}
+
+function parseRentPaid(value: string | undefined): boolean | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (normalized === "да") return true;
+  if (normalized === "нет") return false;
+  return null;
+}
+
+function parseMarkdownTableLine(line: string): string[] {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return [];
+  return trimmed
+    .slice(1, -1)
+    .split("|")
+    .map((cell) => cell.replace(/\*\*/g, "").trim());
+}
+
+function isMarkdownSeparator(cells: string[]) {
+  return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell.replace(/\s/g, "")));
+}
+
+function extractMarkdownTables(text: string) {
+  const tables: { headers: string[]; rows: string[][] }[] = [];
+  const lines = text.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].trim().startsWith("|")) {
+      index += 1;
+      continue;
+    }
+
+    const block: string[] = [];
+    while (index < lines.length && lines[index].trim().startsWith("|")) {
+      block.push(lines[index]);
+      index += 1;
+    }
+
+    const parsedRows = block.map(parseMarkdownTableLine).filter((row) => row.length > 0);
+    if (parsedRows.length < 2) continue;
+
+    const headers = parsedRows[0];
+    const rows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row));
+    tables.push({ headers, rows });
+  }
+
+  return tables;
+}
+
+function findColumn(headers: string[], text: string) {
+  return headers.findIndex((header) => header.toLowerCase().includes(text.toLowerCase()));
+}
+
+function valueDelta(
+  latest: MoneyRecord | null,
+  previous: MoneyRecord | null,
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt">
+) {
+  const latestValue = latest?.[key];
+  const previousValue = previous?.[key];
+  if (typeof latestValue !== "number" || typeof previousValue !== "number") return null;
+  return latestValue - previousValue;
+}
+
+function firstRecordWithValue(
+  records: MoneyRecord[],
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt">
+) {
+  return records.find((record) => typeof record[key] === "number") ?? null;
+}
+
+function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: string | null): MoneyData {
+  return {
+    status,
+    sourceFile: MONEY_FILE,
+    sourceMtimeMs: stat?.mtimeMs ?? null,
+    lastLoadError: error,
+    monthlyIncome: null,
+    rentMonthly: null,
+    dianaMoney: null,
+    manualCreditCardDebtDiana: null,
+    records: [],
+    latestRecord: null,
+    previousRecord: null,
+    events: [],
+    upcomingEvents: [],
+    summary: {
+      recordCount: 0,
+      firstDateIso: null,
+      lastDateIso: null,
+      totalChange: null,
+      freeChange: null,
+      reserveChange: null,
+      creditCardDebtChange: null,
+      freeShare: null,
+      debtToTotalShare: null
+    }
+  };
+}
+
+function loadMoneyData(): MoneyData {
+  const stat = fs.existsSync(MONEY_FILE) ? fs.statSync(MONEY_FILE) : null;
+  if (!stat) return emptyMoneyData("missing", null, null);
+
+  try {
+    const text = fs.readFileSync(MONEY_FILE, "utf8");
+    const tables = extractMarkdownTables(text);
+    const moneyTable = tables.find(
+      (table) => findColumn(table.headers, "Дата") !== -1 && findColumn(table.headers, "Общая сумма") !== -1
+    );
+    const eventTable = tables.find(
+      (table) => findColumn(table.headers, "Банк") !== -1 && findColumn(table.headers, "Событие") !== -1
+    );
+
+    const moneyDateColumn = findColumn(moneyTable?.headers ?? [], "Дата");
+    const totalColumn = findColumn(moneyTable?.headers ?? [], "Общая сумма");
+    const freeColumn = findColumn(moneyTable?.headers ?? [], "Свободная сумма");
+    const reserveColumn = findColumn(moneyTable?.headers ?? [], "Несгораемая сумма");
+    const debtColumn = findColumn(moneyTable?.headers ?? [], "Долг по кредиткам");
+    const rentPaidColumn = findColumn(moneyTable?.headers ?? [], "Аренда заплачена");
+
+    const records = (moneyTable?.rows ?? [])
+      .map((row) => {
+        const date = row[moneyDateColumn];
+        const dateIso = parseMoneyDate(date);
+        if (!dateIso) return null;
+        return {
+          rowId: 0,
+          date,
+          dateIso,
+          totalAmount: parseMoneyAmount(row[totalColumn]),
+          freeAmount: parseMoneyAmount(row[freeColumn]),
+          reserveAmount: parseMoneyAmount(row[reserveColumn]),
+          creditCardDebt: parseMoneyAmount(row[debtColumn]),
+          rentPaid: parseRentPaid(row[rentPaidColumn])
+        } satisfies MoneyRecord;
+      })
+      .filter((record): record is MoneyRecord => record !== null)
+      .map((record, index) => ({ ...record, rowId: index + 1 }));
+
+    const eventBankColumn = findColumn(eventTable?.headers ?? [], "Банк");
+    const eventDateColumn = findColumn(eventTable?.headers ?? [], "Дата");
+    const eventTitleColumn = findColumn(eventTable?.headers ?? [], "Событие");
+    const events = (eventTable?.rows ?? [])
+      .map((row) => {
+        const date = row[eventDateColumn];
+        const dateIso = parseMoneyDate(date);
+        const bank = row[eventBankColumn]?.trim() ?? "";
+        const title = row[eventTitleColumn]?.trim() ?? "";
+        if (!dateIso || !bank || !title) return null;
+        return {
+          rowId: 0,
+          bank,
+          date,
+          dateIso,
+          title,
+          daysFromToday: daysFromToday(dateIso)
+        } satisfies MoneyEvent;
+      })
+      .filter((event): event is MoneyEvent => event !== null)
+      .sort((a, b) => a.dateIso.localeCompare(b.dateIso))
+      .map((event, index) => ({ ...event, rowId: index + 1 }));
+
+    const latestRecord = records[records.length - 1] ?? null;
+    const previousRecord = records.length > 1 ? records[records.length - 2] : null;
+    const firstRecord = records[0] ?? null;
+    const monthlyIncome = parseMoneyAmount(text.match(/\*\*Доход:\*\*\s*([^\n]+)/)?.[1]);
+    const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]);
+    const manualCreditCardDebtDiana = parseMoneyAmount(
+      text.match(/Долг по кредиткам Дианы:\s*([^\n]+)/i)?.[1]
+    );
+    const dianaMoney = parseMoneyAmount(text.match(/Деньги Дианы:\s*([^\n]+)/i)?.[1]);
+    const freeShare =
+      typeof latestRecord?.freeAmount === "number" && latestRecord.totalAmount
+        ? round(latestRecord.freeAmount / latestRecord.totalAmount, 4)
+        : null;
+    const debtToTotalShare =
+      typeof latestRecord?.creditCardDebt === "number" && latestRecord.totalAmount
+        ? round(latestRecord.creditCardDebt / latestRecord.totalAmount, 4)
+        : null;
+
+    return {
+      status: "ready",
+      sourceFile: MONEY_FILE,
+      sourceMtimeMs: stat.mtimeMs,
+      lastLoadError: null,
+      monthlyIncome,
+      rentMonthly,
+      dianaMoney,
+      manualCreditCardDebtDiana,
+      records,
+      latestRecord,
+      previousRecord,
+      events,
+      upcomingEvents: events.filter((event) => event.daysFromToday >= 0).slice(0, 5),
+      summary: {
+        recordCount: records.length,
+        firstDateIso: firstRecord?.dateIso ?? null,
+        lastDateIso: latestRecord?.dateIso ?? null,
+        totalChange: valueDelta(latestRecord, firstRecordWithValue(records, "totalAmount"), "totalAmount"),
+        freeChange: valueDelta(latestRecord, firstRecordWithValue(records, "freeAmount"), "freeAmount"),
+        reserveChange: valueDelta(latestRecord, firstRecordWithValue(records, "reserveAmount"), "reserveAmount"),
+        creditCardDebtChange: valueDelta(
+          latestRecord,
+          firstRecordWithValue(records, "creditCardDebt"),
+          "creditCardDebt"
+        ),
+        freeShare,
+        debtToTotalShare
+      }
+    };
+  } catch (error) {
+    return emptyMoneyData("error", stat, error instanceof Error ? error.message : String(error));
+  }
 }
 
 function measuredAtIso(measurement: RawMeasurement): string {
@@ -557,7 +866,8 @@ function buildDashboardData(raw: RawData, stat: fs.Stats | null): DashboardData 
     metrics,
     measurements,
     stats,
-    weeklyTrendsFromUi: raw.weekly_trends_from_ui ?? []
+    weeklyTrendsFromUi: raw.weekly_trends_from_ui ?? [],
+    money: loadMoneyData()
   };
 }
 
@@ -604,12 +914,21 @@ app.get("/api/health-data", (_request, response) => {
 app.get("/api/status", (_request, response) => {
   const exists = fs.existsSync(DATA_FILE);
   const stat = exists ? fs.statSync(DATA_FILE) : null;
+  const moneyExists = fs.existsSync(MONEY_FILE);
+  const moneyStat = moneyExists ? fs.statSync(MONEY_FILE) : null;
+  const money = cachedData?.money ?? loadMoneyData();
   response.json({
     ok: exists && lastLoadError === null,
     version: dataVersion,
     dataDir: DATA_DIR,
     dataFile: DATA_FILE,
     sourceMtimeMs: stat?.mtimeMs ?? null,
+    money: {
+      status: money.status,
+      sourceFile: MONEY_FILE,
+      sourceMtimeMs: moneyStat?.mtimeMs ?? null,
+      lastLoadError: money.lastLoadError
+    },
     lastLoadError
   });
 });
@@ -632,7 +951,7 @@ function broadcast(payload: unknown) {
 }
 
 let refreshTimer: NodeJS.Timeout | null = null;
-const watcher = chokidar.watch([DATA_FILE, path.join(DATA_DIR, "*.csv"), path.join(DATA_DIR, "*.md")], {
+const watcher = chokidar.watch([DATA_FILE, path.join(DATA_DIR, "*.csv"), path.join(DATA_DIR, "*.md"), MONEY_FILE], {
   ignoreInitial: true,
   awaitWriteFinish: {
     stabilityThreshold: 350,
@@ -703,6 +1022,6 @@ await configureFrontend();
 
 server.listen(PORT, HOST, () => {
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;
-  console.log(`Health Dashboard: http://${shownHost}:${PORT}`);
+  console.log(`Life Dashboard: http://${shownHost}:${PORT}`);
   console.log(`Data source: ${DATA_FILE}`);
 });

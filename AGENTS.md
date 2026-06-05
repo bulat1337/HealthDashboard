@@ -14,7 +14,7 @@ Do not overuse rhetorical contrasts. Keep explanations direct and concise.
 
 ## Project Context
 
-This repository is a local React/Vite health dashboard for Xiaomi Body Scale data. The backend is an Express server in `server/index.ts`; it serves the React app, exposes `/api/health-data` and `/api/status`, and broadcasts data updates through `/ws`.
+This repository is a local React/Vite life dashboard for personal domains such as health, money, relationships, sport, and other areas over time. The current first domains are health, backed by Xiaomi Body Scale data, money, backed by `Money.md`, and relationships, shown as an in-app counter. The backend is an Express server in `server/index.ts`; it serves the React app, exposes `/api/health-data` and `/api/status`, and broadcasts data updates through `/ws`.
 
 Default runtime settings:
 
@@ -23,6 +23,7 @@ Default runtime settings:
 - Server URL: `http://192.168.31.74:5000`
 - Default data directory on macOS: `/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Health/Xiaomi Body Scale`
 - Default data directory on VaioServer: `/home/bulat/data/health-dashboard/xiaomi-body-scale`
+- Default money file on macOS: `/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Personal/Management/Money.md`
 
 For Obsidian Vault-specific workflows, including Xiaomi Home smart scale export, see `/Users/bulatmotygullin/Documents/Obsidian_Vault/AGENTS.md`.
 
@@ -51,21 +52,31 @@ For a custom data source:
 HEALTH_DATA_DIR="/path/to/Xiaomi Body Scale" npm run dev
 ```
 
+For a custom money source:
+
+```bash
+MONEY_DATA_FILE="/path/to/Money.md" npm run dev
+```
+
+## Worktrees
+
+Use repository-root `.worktrees/<task-slug>` for future separate worktrees. Use `codex/` as the default branch prefix unless the user asks for another branch name. `.worktrees/` is intentionally ignored by Git.
+
 ## Frontend Guidelines
 
-The UI is a dense health dashboard. Keep it practical and scan-friendly:
+The UI is a dense personal life dashboard. Keep it practical and scan-friendly:
 
 - Use the existing React structure in `src/App.tsx`, chart code in `src/components/HealthChart.tsx`, and global styles in `src/styles.css`.
 - Use Lucide icons from `lucide-react` for UI controls and metric tiles.
 - Keep cards at `8px` radius unless the existing system changes.
-- Keep the current soft health-dashboard palette: blue data, amber active accents, white surfaces, high-contrast text.
+- Keep the current soft life-dashboard palette: blue data, amber active accents, white surfaces, high-contrast text.
 - Preserve responsive behavior for desktop and mobile. Check for horizontal page overflow after layout changes.
 - Avoid emoji icons, decorative blobs, oversized marketing sections, and low-contrast glass effects.
 
 If UI/UX work is requested, use the local `ui-ux-pro-max` skill first:
 
 ```bash
-python3 .codex/skills/ui-ux-pro-max/scripts/search.py "healthcare health metrics dashboard elegant professional data visualization" --design-system -p "Health Dashboard"
+python3 .codex/skills/ui-ux-pro-max/scripts/search.py "personal life dashboard health money relationships sport elegant professional data visualization" --design-system -p "Life Dashboard"
 ```
 
 ## Server Deployment

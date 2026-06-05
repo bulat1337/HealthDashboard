@@ -59,6 +59,57 @@ export type MetricStats = {
   reliabilityLabel: string;
 };
 
+export type MoneyStatus = "ready" | "missing" | "error";
+
+export type MoneyRecord = {
+  rowId: number;
+  date: string;
+  dateIso: string;
+  totalAmount: number | null;
+  freeAmount: number | null;
+  reserveAmount: number | null;
+  creditCardDebt: number | null;
+  rentPaid: boolean | null;
+};
+
+export type MoneyEvent = {
+  rowId: number;
+  bank: string;
+  date: string;
+  dateIso: string;
+  title: string;
+  daysFromToday: number;
+};
+
+export type MoneySummary = {
+  recordCount: number;
+  firstDateIso: string | null;
+  lastDateIso: string | null;
+  totalChange: number | null;
+  freeChange: number | null;
+  reserveChange: number | null;
+  creditCardDebtChange: number | null;
+  freeShare: number | null;
+  debtToTotalShare: number | null;
+};
+
+export type MoneyData = {
+  status: MoneyStatus;
+  sourceFile: string;
+  sourceMtimeMs: number | null;
+  lastLoadError: string | null;
+  monthlyIncome: number | null;
+  rentMonthly: number | null;
+  dianaMoney: number | null;
+  manualCreditCardDebtDiana: number | null;
+  records: MoneyRecord[];
+  latestRecord: MoneyRecord | null;
+  previousRecord: MoneyRecord | null;
+  events: MoneyEvent[];
+  upcomingEvents: MoneyEvent[];
+  summary: MoneySummary;
+};
+
 export type DashboardData = {
   generatedAt: string;
   dataDir: string;
@@ -78,6 +129,7 @@ export type DashboardData = {
   measurements: NormalizedMeasurement[];
   stats: Record<string, Record<string, MetricStats>>;
   weeklyTrendsFromUi: unknown[];
+  money: MoneyData;
 };
 
 export type HealthDataResponse = {

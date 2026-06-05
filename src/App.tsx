@@ -1,18 +1,23 @@
 import {
   Activity,
+  CalendarHeart,
   CircleAlert,
   Dumbbell,
+  Heart,
   HeartPulse,
   RefreshCw,
   Scale,
   ShieldCheck,
+  Sparkles,
   SlidersHorizontal,
   Users,
+  Wallet,
   Waves
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { fetchHealthData, openHealthSocket } from "./api";
 import { HealthChart } from "./components/HealthChart";
+import { MoneyDashboard } from "./components/MoneyDashboard";
 import {
   buildChartPoints,
   changeBetweenEdges,
@@ -24,6 +29,8 @@ import {
   recordsForUser
 } from "./stats";
 import type { DashboardData, MetricCatalogEntry } from "./types";
+
+type Domain = "health" | "money";
 
 const QUICK_METRICS = [
   "weight_kg",
@@ -43,6 +50,26 @@ const METRIC_ICONS: Record<string, typeof Scale> = {
   heart_rate_bpm: HeartPulse
 };
 
+const RELATIONSHIP_START = new Date(2021, 4, 14);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function daysSince(startDate: Date, referenceDate: Date) {
+  return Math.max(0, Math.floor((startOfLocalDay(referenceDate).getTime() - startOfLocalDay(startDate).getTime()) / DAY_MS));
+}
+
+function russianDayLabel(days: number) {
+  const lastTwo = days % 100;
+  const last = days % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return "дней";
+  if (last === 1) return "день";
+  if (last >= 2 && last <= 4) return "дня";
+  return "дней";
+}
+
 function statusText(connected: boolean, lastEventAt: string | null) {
   if (connected && lastEventAt) return `Live, ${formatDateTime(lastEventAt)}`;
   if (connected) return "Live";
@@ -57,10 +84,12 @@ function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [selectedMetric, setSelectedMetric] = useState<string>("weight_kg");
+  const [activeDomain, setActiveDomain] = useState<Domain>("health");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
   const [lastEventAt, setLastEventAt] = useState<string | null>(null);
+  const [today, setToday] = useState(() => new Date());
 
   async function load(signal?: AbortSignal) {
     const response = await fetchHealthData(signal);
@@ -119,6 +148,11 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(new Date()), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const selectedMetricInfo = useMemo(() => {
     if (!data) return null;
     return metricByKey(data.metrics, selectedMetric);
@@ -160,11 +194,13 @@ function App() {
     );
   }
 
-  if (!data || !selectedMetricInfo) return null;
+  if (!data) return null;
 
   const latestValue = latestMetricValue(metricRecords, selectedMetric);
   const totalChange = changeBetweenEdges(metricRecords, selectedMetric);
-  const metricUnit = selectedMetricInfo.unit;
+  const metricUnit = selectedMetricInfo?.unit ?? "";
+  const relationshipDays = daysSince(RELATIONSHIP_START, today);
+  const relationshipYears = relationshipDays / 365.2425;
 
   return (
     <main className="app">
@@ -174,8 +210,8 @@ function App() {
             <HeartPulse size={24} />
           </div>
           <div>
-            <h1>Health Dashboard</h1>
-            <span>{data.source.deviceName ?? "Xiaomi Body Scale"}</span>
+            <h1>Life Dashboard</h1>
+            <span>Здоровье, деньги и отношения · {data.source.deviceName ?? "Xiaomi Body Scale"}</span>
           </div>
         </div>
 
@@ -188,6 +224,59 @@ function App() {
         </div>
       </header>
 
+      <section className="relationship-section" aria-labelledby="relationship-title">
+        <div className="relationship-copy">
+          <div className="section-kicker">
+            <CalendarHeart size={18} />
+            <span>Отношения</span>
+          </div>
+          <h2 id="relationship-title">Булат и Диана</h2>
+          <p>Вместе с 14 мая 2021 года</p>
+        </div>
+
+        <div className="love-counter" aria-label={`В отношениях ${relationshipDays} ${russianDayLabel(relationshipDays)}`}>
+          <Heart className="counter-heart" size={30} />
+          <strong>{relationshipDays.toLocaleString("ru-RU")}</strong>
+          <span>{russianDayLabel(relationshipDays)} в отношениях</span>
+        </div>
+
+        <div className="relationship-details" aria-label="Детали отношений">
+          <div>
+            <Sparkles size={17} />
+            <span>{relationshipYears.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} года рядом</span>
+          </div>
+          <div>
+            <HeartPulse size={17} />
+            <span>одна история на двоих</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="domain-band">
+        <div className="segmented domain-control" aria-label="Раздел">
+          <button
+            type="button"
+            className={activeDomain === "health" ? "active" : ""}
+            onClick={() => setActiveDomain("health")}
+          >
+            <HeartPulse size={16} />
+            <span>Здоровье</span>
+          </button>
+          <button
+            type="button"
+            className={activeDomain === "money" ? "active" : ""}
+            onClick={() => setActiveDomain("money")}
+          >
+            <Wallet size={16} />
+            <span>Деньги</span>
+          </button>
+        </div>
+      </section>
+
+      {activeDomain === "money" ? (
+        <MoneyDashboard money={data.money} />
+      ) : selectedMetricInfo ? (
+        <>
       <section className="control-band">
         <div className="segmented users-control" aria-label="Пользователь">
           {data.users.map((user) => (
@@ -342,6 +431,16 @@ function App() {
           </dl>
         </aside>
       </section>
+        </>
+      ) : (
+        <section className="panel money-empty-panel">
+          <CircleAlert size={28} />
+          <div>
+            <h2>Метрики здоровья недоступны</h2>
+            <p>Источник прочитан, каталог метрик пустой.</p>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

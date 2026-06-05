@@ -1,5 +1,6 @@
 {
-  "name": "health-dashboard",
+  "name": "life-dashboard",
+  "description": "Personal life dashboard with health as the first tracked domain.",
   "version": "0.1.0",
   "private": true,
   "type": "module",
