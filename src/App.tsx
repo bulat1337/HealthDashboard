@@ -1,14 +1,12 @@
 import {
   Activity,
-  CalendarHeart,
   CircleAlert,
   Dumbbell,
-  Heart,
+  HeartHandshake,
   HeartPulse,
   RefreshCw,
   Scale,
   ShieldCheck,
-  Sparkles,
   SlidersHorizontal,
   Users,
   Wallet,
@@ -18,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchHealthData, openHealthSocket } from "./api";
 import { HealthChart } from "./components/HealthChart";
 import { MoneyDashboard } from "./components/MoneyDashboard";
+import { RelationshipDashboard } from "./components/RelationshipDashboard";
 import {
   buildChartPoints,
   changeBetweenEdges,
@@ -30,7 +29,7 @@ import {
 } from "./stats";
 import type { DashboardData, MetricCatalogEntry } from "./types";
 
-type Domain = "health" | "money";
+type Domain = "health" | "money" | "relationships";
 
 const QUICK_METRICS = [
   "weight_kg",
@@ -49,26 +48,6 @@ const METRIC_ICONS: Record<string, typeof Scale> = {
   body_score: ShieldCheck,
   heart_rate_bpm: HeartPulse
 };
-
-const RELATIONSHIP_START = new Date(2021, 4, 14);
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function daysSince(startDate: Date, referenceDate: Date) {
-  return Math.max(0, Math.floor((startOfLocalDay(referenceDate).getTime() - startOfLocalDay(startDate).getTime()) / DAY_MS));
-}
-
-function russianDayLabel(days: number) {
-  const lastTwo = days % 100;
-  const last = days % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return "дней";
-  if (last === 1) return "день";
-  if (last >= 2 && last <= 4) return "дня";
-  return "дней";
-}
 
 function statusText(connected: boolean, lastEventAt: string | null) {
   if (connected && lastEventAt) return `Live, ${formatDateTime(lastEventAt)}`;
@@ -199,8 +178,6 @@ function App() {
   const latestValue = latestMetricValue(metricRecords, selectedMetric);
   const totalChange = changeBetweenEdges(metricRecords, selectedMetric);
   const metricUnit = selectedMetricInfo?.unit ?? "";
-  const relationshipDays = daysSince(RELATIONSHIP_START, today);
-  const relationshipYears = relationshipDays / 365.2425;
 
   return (
     <main className="app">
@@ -224,34 +201,6 @@ function App() {
         </div>
       </header>
 
-      <section className="relationship-section" aria-labelledby="relationship-title">
-        <div className="relationship-copy">
-          <div className="section-kicker">
-            <CalendarHeart size={18} />
-            <span>Отношения</span>
-          </div>
-          <h2 id="relationship-title">Булат и Диана</h2>
-          <p>Вместе с 14 мая 2021 года</p>
-        </div>
-
-        <div className="love-counter" aria-label={`В отношениях ${relationshipDays} ${russianDayLabel(relationshipDays)}`}>
-          <Heart className="counter-heart" size={30} />
-          <strong>{relationshipDays.toLocaleString("ru-RU")}</strong>
-          <span>{russianDayLabel(relationshipDays)} в отношениях</span>
-        </div>
-
-        <div className="relationship-details" aria-label="Детали отношений">
-          <div>
-            <Sparkles size={17} />
-            <span>{relationshipYears.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} года рядом</span>
-          </div>
-          <div>
-            <HeartPulse size={17} />
-            <span>одна история на двоих</span>
-          </div>
-        </div>
-      </section>
-
       <section className="domain-band">
         <div className="segmented domain-control" aria-label="Раздел">
           <button
@@ -270,11 +219,21 @@ function App() {
             <Wallet size={16} />
             <span>Деньги</span>
           </button>
+          <button
+            type="button"
+            className={activeDomain === "relationships" ? "active" : ""}
+            onClick={() => setActiveDomain("relationships")}
+          >
+            <HeartHandshake size={16} />
+            <span>Отношения</span>
+          </button>
         </div>
       </section>
 
       {activeDomain === "money" ? (
         <MoneyDashboard money={data.money} />
+      ) : activeDomain === "relationships" ? (
+        <RelationshipDashboard today={today} />
       ) : selectedMetricInfo ? (
         <>
       <section className="control-band">
