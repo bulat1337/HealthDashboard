@@ -12,6 +12,37 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
+loadLocalEnvFiles();
+
+function loadLocalEnvFiles() {
+  const externalKeys = new Set(Object.keys(process.env));
+  for (const filename of [".env", ".env.local"]) {
+    const envPath = path.join(rootDir, filename);
+    if (!fs.existsSync(envPath)) continue;
+
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+
+      const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!match || externalKeys.has(match[1])) continue;
+
+      process.env[match[1]] = parseEnvValue(match[2]);
+    }
+  }
+}
+
+function parseEnvValue(value: string) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+    const inner = trimmed.slice(1, -1);
+    return quote === '"' ? inner.replace(/\\n/g, "\n").replace(/\\"/g, '"') : inner;
+  }
+  return trimmed;
+}
+
 const DEFAULT_DATA_DIR = path.join(rootDir, "data", "xiaomi-body-scale");
 
 const DATA_DIR = process.env.HEALTH_DATA_DIR || DEFAULT_DATA_DIR;
@@ -19,6 +50,7 @@ const DATA_FILE =
   process.env.HEALTH_DATA_FILE || path.join(DATA_DIR, "xiaomi-body-scale-data.json");
 const DEFAULT_MONEY_FILE = path.join(rootDir, "data", "money", "Money.md");
 const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
+const LOCAL_ASSETS_DIR = path.join(rootDir, "data", "assets");
 const MONEY_PARTNER_LABEL = process.env.MONEY_PARTNER_LABEL?.trim() || "партнера";
 const PORT = Number(process.env.PORT || 5000);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -937,6 +969,7 @@ const server = http.createServer(app);
 const sockets = new WebSocketServer({ server, path: "/ws" });
 
 app.use(express.json({ limit: "64kb" }));
+app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
 
 app.get("/api/health-data", (_request, response) => {
   try {

@@ -64,6 +64,8 @@ Supported configuration:
 | `HOST` / `PORT` | Express bind host and port. Defaults: `127.0.0.1:5000`. |
 | `VITE_RELATIONSHIP_*` | Local-only relationship title, start date, photo date, caption, and photo URL. |
 
+Local files under `data/assets` are served from `/local-assets/*`, which is useful for private relationship photos kept outside Git.
+
 ## Scale Ingest
 
 Enable the protected endpoint with a long random token:
