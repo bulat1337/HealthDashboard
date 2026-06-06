@@ -100,8 +100,8 @@ export type MoneyData = {
   lastLoadError: string | null;
   monthlyIncome: number | null;
   rentMonthly: number | null;
-  dianaMoney: number | null;
-  manualCreditCardDebtDiana: number | null;
+  partnerMoney: number | null;
+  partnerCreditCardDebt: number | null;
   records: MoneyRecord[];
   latestRecord: MoneyRecord | null;
   previousRecord: MoneyRecord | null;

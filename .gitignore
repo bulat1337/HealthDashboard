@@ -1,8 +1,10 @@
 node_modules/
 dist/
 .worktrees/
+data/
 .DS_Store
-.env
+.env*
+!.env.example
 .vite/
 *.log
 __pycache__/

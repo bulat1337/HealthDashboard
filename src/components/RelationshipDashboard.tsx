@@ -11,7 +11,7 @@ import {
   Sparkles,
   Timer
 } from "lucide-react";
-import relationshipPhotoUrl from "../assets/relationship-bulat-diana.jpeg";
+import relationshipDemoPhotoUrl from "../assets/relationship-demo.svg";
 import { formatNumber } from "../stats";
 
 type RelationshipDashboardProps = {
@@ -26,8 +26,19 @@ type RelationshipTile = {
   tone: "rose" | "gold" | "blue" | "green";
 };
 
-const RELATIONSHIP_START = new Date(2021, 4, 14);
-const PHOTO_DATE = new Date(2026, 5, 5);
+function parseLocalDate(value: string | undefined, fallback: string) {
+  const match = (value?.trim() || fallback).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return parseLocalDate(fallback, "2024-01-01");
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+const RELATIONSHIP_TITLE = import.meta.env.VITE_RELATIONSHIP_TITLE?.trim() || "Relationship";
+const RELATIONSHIP_PHOTO_CAPTION =
+  import.meta.env.VITE_RELATIONSHIP_PHOTO_CAPTION?.trim() || "Demo milestone";
+const RELATIONSHIP_PHOTO_URL =
+  import.meta.env.VITE_RELATIONSHIP_PHOTO_URL?.trim() || relationshipDemoPhotoUrl;
+const RELATIONSHIP_START = parseLocalDate(import.meta.env.VITE_RELATIONSHIP_START, "2024-01-01");
+const PHOTO_DATE = parseLocalDate(import.meta.env.VITE_RELATIONSHIP_PHOTO_DATE, "2024-05-20");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function startOfLocalDay(date: Date) {
@@ -124,7 +135,7 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
     {
       label: "Фото",
       value: formatLongDate(PHOTO_DATE),
-      detail: "весенний кадр",
+      detail: RELATIONSHIP_PHOTO_CAPTION,
       icon: Camera,
       tone: "green"
     }
@@ -135,10 +146,10 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
       <section className="relationship-hero-grid" aria-label="Раздел отношений">
         <article className="panel relationship-photo-panel">
           <div className="relationship-photo-frame">
-            <img src={relationshipPhotoUrl} alt="Булат и Диана среди цветущих веток" />
+            <img src={RELATIONSHIP_PHOTO_URL} alt={RELATIONSHIP_TITLE} />
             <div className="relationship-photo-caption">
               <Camera size={18} />
-              <span>Фото от {formatLongDate(PHOTO_DATE)}</span>
+              <span>{RELATIONSHIP_PHOTO_CAPTION} · {formatLongDate(PHOTO_DATE)}</span>
             </div>
           </div>
         </article>
@@ -150,7 +161,7 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
           </div>
 
           <div className="relationship-title-block">
-            <h2>Булат и Диана</h2>
+            <h2>{RELATIONSHIP_TITLE}</h2>
             <p>Вместе с {formatLongDate(RELATIONSHIP_START)}</p>
           </div>
 
@@ -237,7 +248,7 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
               </span>
               <div>
                 <strong>{formatLongDate(PHOTO_DATE)}</strong>
-                <p>фото среди цветущих веток</p>
+                <p>{RELATIONSHIP_PHOTO_CAPTION}</p>
               </div>
             </div>
             <div className="relationship-timeline-item">

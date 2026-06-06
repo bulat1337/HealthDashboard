@@ -1,27 +1,43 @@
 import chokidar from "chokidar";
 import express from "express";
 import fs from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
-const DEFAULT_DATA_DIR =
-  "/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Health/Xiaomi Body Scale";
+const DEFAULT_DATA_DIR = path.join(rootDir, "data", "xiaomi-body-scale");
 
 const DATA_DIR = process.env.HEALTH_DATA_DIR || DEFAULT_DATA_DIR;
 const DATA_FILE =
   process.env.HEALTH_DATA_FILE || path.join(DATA_DIR, "xiaomi-body-scale-data.json");
-const DEFAULT_MONEY_FILE =
-  "/Users/bulatmotygullin/Documents/Obsidian_Vault/007 - Shelf/Personal/Management/Money.md";
+const DEFAULT_MONEY_FILE = path.join(rootDir, "data", "money", "Money.md");
 const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
+const MONEY_PARTNER_LABEL = process.env.MONEY_PARTNER_LABEL?.trim() || "партнера";
 const PORT = Number(process.env.PORT || 5000);
 const HOST = process.env.HOST || "127.0.0.1";
+const HEALTH_INGEST_TOKEN = process.env.HEALTH_INGEST_TOKEN || "";
+const HEALTH_DEFAULT_TIMEZONE = process.env.HEALTH_DEFAULT_TIMEZONE || "UTC";
 const isProduction = process.env.NODE_ENV === "production";
+
+function publicPath(filePath: string) {
+  const relative = path.relative(rootDir, filePath);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return relative;
+  return path.basename(filePath);
+}
+
+function errorText(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error);
+  return [DATA_FILE, DATA_DIR, MONEY_FILE]
+    .sort((a, b) => b.length - a.length)
+    .reduce((message, filePath) => message.replaceAll(filePath, publicPath(filePath)), raw);
+}
 
 type RawMeasurement = {
   row_id?: number;
@@ -186,8 +202,8 @@ type MoneyData = {
   lastLoadError: string | null;
   monthlyIncome: number | null;
   rentMonthly: number | null;
-  dianaMoney: number | null;
-  manualCreditCardDebtDiana: number | null;
+  partnerMoney: number | null;
+  partnerCreditCardDebt: number | null;
   records: MoneyRecord[];
   latestRecord: MoneyRecord | null;
   previousRecord: MoneyRecord | null;
@@ -305,6 +321,19 @@ function parseMoneyAmount(value: string | undefined): number | null {
   return Math.round(numeric * multiplier);
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseLabeledMoneyAmount(text: string, labels: string[]) {
+  for (const label of labels) {
+    const match = text.match(new RegExp(`${escapeRegExp(label)}\\s*:\\s*([^\\n]+)`, "i"));
+    const amount = parseMoneyAmount(match?.[1]);
+    if (amount !== null) return amount;
+  }
+  return null;
+}
+
 function parseMoneyDate(date: string | undefined): string | null {
   const match = date?.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
   if (!match) return null;
@@ -398,13 +427,13 @@ function firstRecordWithValue(
 function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: string | null): MoneyData {
   return {
     status,
-    sourceFile: MONEY_FILE,
+    sourceFile: publicPath(MONEY_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     lastLoadError: error,
     monthlyIncome: null,
     rentMonthly: null,
-    dianaMoney: null,
-    manualCreditCardDebtDiana: null,
+    partnerMoney: null,
+    partnerCreditCardDebt: null,
     records: [],
     latestRecord: null,
     previousRecord: null,
@@ -492,10 +521,18 @@ function loadMoneyData(): MoneyData {
     const firstRecord = records[0] ?? null;
     const monthlyIncome = parseMoneyAmount(text.match(/\*\*Доход:\*\*\s*([^\n]+)/)?.[1]);
     const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]);
-    const manualCreditCardDebtDiana = parseMoneyAmount(
-      text.match(/Долг по кредиткам Дианы:\s*([^\n]+)/i)?.[1]
-    );
-    const dianaMoney = parseMoneyAmount(text.match(/Деньги Дианы:\s*([^\n]+)/i)?.[1]);
+    const partnerCreditCardDebt = parseLabeledMoneyAmount(text, [
+      `Долг по кредиткам ${MONEY_PARTNER_LABEL}`,
+      "Долг по кредиткам партнера",
+      "Долг по кредиткам партнёра",
+      "Partner credit card debt"
+    ]);
+    const partnerMoney = parseLabeledMoneyAmount(text, [
+      `Деньги ${MONEY_PARTNER_LABEL}`,
+      "Деньги партнера",
+      "Деньги партнёра",
+      "Partner money"
+    ]);
     const freeShare =
       typeof latestRecord?.freeAmount === "number" && latestRecord.totalAmount
         ? round(latestRecord.freeAmount / latestRecord.totalAmount, 4)
@@ -512,8 +549,8 @@ function loadMoneyData(): MoneyData {
       lastLoadError: null,
       monthlyIncome,
       rentMonthly,
-      dianaMoney,
-      manualCreditCardDebtDiana,
+      partnerMoney,
+      partnerCreditCardDebt,
       records,
       latestRecord,
       previousRecord,
@@ -536,7 +573,7 @@ function loadMoneyData(): MoneyData {
       }
     };
   } catch (error) {
-    return emptyMoneyData("error", stat, error instanceof Error ? error.message : String(error));
+    return emptyMoneyData("error", stat, errorText(error));
   }
 }
 
@@ -751,7 +788,7 @@ function normalizeMeasurement(raw: RawMeasurement, index: number): NormalizedMea
     measuredAt: measuredAtIso(raw),
     measuredAtUnixSeconds: measuredAtUnixSeconds(raw),
     measuredAtMinute: String(raw.measured_at_minute ?? ""),
-    timezone: String(raw.measured_at_timezone ?? "Europe/Moscow"),
+    timezone: String(raw.measured_at_timezone ?? HEALTH_DEFAULT_TIMEZONE),
     sameMinuteIndex: Number(raw.same_minute_index ?? 1),
     sameMinuteCount: Number(raw.same_minute_count ?? 1),
     metrics,
@@ -848,8 +885,8 @@ function buildDashboardData(raw: RawData, stat: fs.Stats | null): DashboardData 
 
   return {
     generatedAt: new Date().toISOString(),
-    dataDir: DATA_DIR,
-    dataFile: DATA_FILE,
+    dataDir: publicPath(DATA_DIR),
+    dataFile: publicPath(DATA_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     schemaVersion: raw.schema_version ?? null,
     source: {
@@ -885,7 +922,7 @@ function refreshCache() {
     dataVersion += 1;
     return cachedData;
   } catch (error) {
-    lastLoadError = error instanceof Error ? error.message : String(error);
+    lastLoadError = errorText(error);
     throw error;
   }
 }
@@ -899,15 +936,64 @@ const app = express();
 const server = http.createServer(app);
 const sockets = new WebSocketServer({ server, path: "/ws" });
 
+app.use(express.json({ limit: "64kb" }));
+
 app.get("/api/health-data", (_request, response) => {
   try {
     const data = getCachedData();
     response.json({ version: dataVersion, data });
   } catch (error) {
     response.status(500).json({
-      error: error instanceof Error ? error.message : String(error),
+      error: errorText(error),
+      dataFile: publicPath(DATA_FILE)
+    });
+  }
+});
+
+app.post("/api/health-data/measurements", (request, response) => {
+  if (!HEALTH_INGEST_TOKEN) {
+    response.status(503).json({
+      error: "Health ingest is disabled. Set HEALTH_INGEST_TOKEN to enable POST ingestion."
+    });
+    return;
+  }
+
+  if (!tokenMatches(requestIngestToken(request))) {
+    response.status(401).json({ error: "Invalid health ingest token" });
+    return;
+  }
+
+  try {
+    const result = ingestScaleMeasurement(request.body, {
+      dataDir: DATA_DIR,
       dataFile: DATA_FILE
     });
+
+    if (!result.duplicate) {
+      refreshCache();
+      broadcast({
+        type: "health-data-updated",
+        event: "ingest",
+        path: publicPath(DATA_FILE),
+        version: dataVersion,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    response.status(result.duplicate ? 200 : 201).json({
+      duplicate: result.duplicate,
+      measurementCount: result.measurementCount,
+      rowId: result.measurement.row_id,
+      user: result.measurement.user,
+      measuredAt: result.measurement.measured_at,
+      dataFile: publicPath(result.dataFile)
+    });
+  } catch (error) {
+    if (error instanceof IngestError) {
+      response.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    response.status(500).json({ error: errorText(error) });
   }
 });
 
@@ -920,12 +1006,12 @@ app.get("/api/status", (_request, response) => {
   response.json({
     ok: exists && lastLoadError === null,
     version: dataVersion,
-    dataDir: DATA_DIR,
-    dataFile: DATA_FILE,
+    dataDir: publicPath(DATA_DIR),
+    dataFile: publicPath(DATA_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     money: {
       status: money.status,
-      sourceFile: MONEY_FILE,
+      sourceFile: publicPath(MONEY_FILE),
       sourceMtimeMs: moneyStat?.mtimeMs ?? null,
       lastLoadError: money.lastLoadError
     },
@@ -950,6 +1036,28 @@ function broadcast(payload: unknown) {
   }
 }
 
+function requestIngestToken(request: express.Request): string | null {
+  const authorization = request.headers.authorization;
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    return authorization.slice("bearer ".length).trim();
+  }
+
+  const header = request.headers["x-health-ingest-token"];
+  if (typeof header === "string") return header.trim();
+  if (Array.isArray(header)) return header[0]?.trim() ?? null;
+  return null;
+}
+
+function tokenMatches(actual: string | null) {
+  if (!actual || !HEALTH_INGEST_TOKEN) return false;
+  const expectedBuffer = Buffer.from(HEALTH_INGEST_TOKEN);
+  const actualBuffer = Buffer.from(actual);
+  return (
+    expectedBuffer.length === actualBuffer.length &&
+    timingSafeEqual(expectedBuffer, actualBuffer)
+  );
+}
+
 let refreshTimer: NodeJS.Timeout | null = null;
 const watcher = chokidar.watch([DATA_FILE, path.join(DATA_DIR, "*.csv"), path.join(DATA_DIR, "*.md"), MONEY_FILE], {
   ignoreInitial: true,
@@ -967,15 +1075,15 @@ watcher.on("all", (event, changedPath) => {
       broadcast({
         type: "health-data-updated",
         event,
-        path: changedPath,
+        path: publicPath(changedPath),
         version: dataVersion,
         updatedAt: new Date().toISOString()
       });
     } catch (error) {
       broadcast({
         type: "health-data-error",
-        path: changedPath,
-        error: error instanceof Error ? error.message : String(error),
+        path: publicPath(changedPath),
+        error: errorText(error),
         updatedAt: new Date().toISOString()
       });
     }
@@ -1023,5 +1131,5 @@ await configureFrontend();
 server.listen(PORT, HOST, () => {
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;
   console.log(`Life Dashboard: http://${shownHost}:${PORT}`);
-  console.log(`Data source: ${DATA_FILE}`);
+  console.log(`Data source: ${publicPath(DATA_FILE)}`);
 });

@@ -73,7 +73,7 @@ function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): Compos
   const segments: CompositionSegment[] = [
     { label: "Свободно", value: Math.max(0, latest.freeAmount ?? 0), color: "#15803d" },
     { label: "Несгораемая", value: Math.max(0, latest.reserveAmount ?? 0), color: "#f59e0b" },
-    { label: "Деньги Дианы", value: Math.max(0, money.dianaMoney ?? 0), color: "#64748b" },
+    { label: "Деньги партнера", value: Math.max(0, money.partnerMoney ?? 0), color: "#64748b" },
     { label: "Кредитки", value: Math.max(0, latest.creditCardDebt ?? 0), color: "#dc2626" }
   ];
 
@@ -219,12 +219,12 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
               <dd>{formatMoney(money.rentMonthly)}</dd>
             </div>
             <div>
-              <dt>Деньги Дианы</dt>
-              <dd>{formatMoney(money.dianaMoney)}</dd>
+              <dt>Деньги партнера</dt>
+              <dd>{formatMoney(money.partnerMoney)}</dd>
             </div>
             <div>
-              <dt>Долг Дианы</dt>
-              <dd>{formatMoney(money.manualCreditCardDebtDiana)}</dd>
+              <dt>Долг партнера</dt>
+              <dd>{formatMoney(money.partnerCreditCardDebt)}</dd>
             </div>
           </dl>
         </aside>

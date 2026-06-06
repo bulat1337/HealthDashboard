@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="430" viewBox="0 0 1400 430" role="img" aria-labelledby="title desc">
+  <title id="title">Health ingest flow</title>
+  <desc id="desc">A sanitized architecture diagram for Xiaomi scale ingest into the dashboard.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef6ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.11"/>
+    </filter>
+  </defs>
+  <rect width="1400" height="430" fill="url(#bg)"/>
+  <g font-family="Fira Sans, Inter, Arial, sans-serif" text-anchor="middle">
+    <text x="700" y="58" fill="#1e3a8a" font-size="38" font-weight="700">Scale Measurement Ingest</text>
+    <text x="700" y="90" fill="#536273" font-size="18">BLE packet to local dashboard refresh</text>
+    <g transform="translate(80 150)" filter="url(#shadow)">
+      <rect width="210" height="132" rx="8" fill="#ffffff" stroke="#d8e2ef"/>
+      <circle cx="105" cy="45" r="22" fill="#dbeafe"/>
+      <text x="105" y="52" fill="#1e40af" font-size="22" font-weight="700">1</text>
+      <text x="105" y="88" fill="#0f172a" font-size="22" font-weight="700">Xiaomi S400</text>
+      <text x="105" y="114" fill="#536273" font-size="15">weight + impedance</text>
+    </g>
+    <path d="M306 216h112" stroke="#1e40af" stroke-width="4" stroke-linecap="round"/>
+    <path d="m408 202 20 14-20 14" fill="none" stroke="#1e40af" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(430 150)" filter="url(#shadow)">
+      <rect width="230" height="132" rx="8" fill="#ffffff" stroke="#d8e2ef"/>
+      <circle cx="115" cy="45" r="22" fill="#dbeafe"/>
+      <text x="115" y="52" fill="#1e40af" font-size="22" font-weight="700">2</text>
+      <text x="115" y="88" fill="#0f172a" font-size="22" font-weight="700">BLE Bridge</text>
+      <text x="115" y="114" fill="#536273" font-size="15">decode + settle</text>
+    </g>
+    <path d="M676 216h112" stroke="#1e40af" stroke-width="4" stroke-linecap="round"/>
+    <path d="m778 202 20 14-20 14" fill="none" stroke="#1e40af" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(800 150)" filter="url(#shadow)">
+      <rect width="250" height="132" rx="8" fill="#ffffff" stroke="#d8e2ef"/>
+      <circle cx="125" cy="45" r="22" fill="#fef3c7"/>
+      <text x="125" y="52" fill="#b45309" font-size="22" font-weight="700">3</text>
+      <text x="125" y="88" fill="#0f172a" font-size="22" font-weight="700">POST ingest</text>
+      <text x="125" y="114" fill="#536273" font-size="15">Bearer token required</text>
+    </g>
+    <path d="M1066 216h112" stroke="#1e40af" stroke-width="4" stroke-linecap="round"/>
+    <path d="m1168 202 20 14-20 14" fill="none" stroke="#1e40af" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(1190 150)" filter="url(#shadow)">
+      <rect width="230" height="132" rx="8" fill="#ffffff" stroke="#d8e2ef"/>
+      <circle cx="115" cy="45" r="22" fill="#dcfce7"/>
+      <text x="115" y="52" fill="#15803d" font-size="22" font-weight="700">4</text>
+      <text x="115" y="88" fill="#0f172a" font-size="22" font-weight="700">Dashboard</text>
+      <text x="115" y="114" fill="#536273" font-size="15">JSON, CSV, WebSocket</text>
+    </g>
+  </g>
+</svg>
