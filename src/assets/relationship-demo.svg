@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Relationship milestone demo image</title>
+  <desc id="desc">A safe demo illustration for the relationship dashboard panel.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#dbeafe"/>
+      <stop offset="0.55" stop-color="#fdf2f8"/>
+      <stop offset="1" stop-color="#fff7ed"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#f8fafc" stop-opacity="0.88"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="26" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="900" fill="url(#sky)"/>
+  <path d="M0 648c126-48 246-54 360-18 164 52 306 48 426-12 84-42 158-56 222-42 62 14 128 46 192 96v228H0Z" fill="#eef6ff"/>
+  <path d="M0 714c154-34 289-30 405 12 118 43 232 45 342 7 94-32 185-32 273 0 64 23 124 57 180 102v65H0Z" fill="#dbeafe"/>
+  <g filter="url(#shadow)">
+    <rect x="224" y="168" width="752" height="520" rx="28" fill="url(#card)" stroke="#f3c6d8" stroke-width="2"/>
+    <circle cx="485" cy="382" r="94" fill="#fdf2f8" stroke="#f3c6d8" stroke-width="2"/>
+    <circle cx="695" cy="382" r="94" fill="#eef6ff" stroke="#b8c9df" stroke-width="2"/>
+    <path d="M590 434c-34-48-90-72-138-55-50 18-74 71-54 122 19 48 82 88 183 154 5 3 12 3 17 0 102-66 165-106 184-154 20-51-4-104-54-122-48-17-104 7-138 55Z" fill="#db2777"/>
+    <path d="M350 240h300" stroke="#1e40af" stroke-width="18" stroke-linecap="round"/>
+    <path d="M350 288h500" stroke="#93c5fd" stroke-width="12" stroke-linecap="round"/>
+    <path d="M350 626h206" stroke="#f59e0b" stroke-width="16" stroke-linecap="round"/>
+    <path d="M604 626h246" stroke="#15803d" stroke-width="16" stroke-linecap="round"/>
+  </g>
+  <g fill="#1e3a8a" font-family="Fira Sans, Inter, Arial, sans-serif" text-anchor="middle">
+    <text x="600" y="780" font-size="42" font-weight="700">Relationship Dashboard</text>
+    <text x="600" y="824" font-size="26" fill="#536273">Safe demo image for public builds</text>
+  </g>
+</svg>

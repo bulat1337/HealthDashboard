@@ -1,0 +1,3 @@
+bleak>=0.22,<1
+home-assistant-bluetooth>=1.13
+xiaomi-ble==1.11.0
