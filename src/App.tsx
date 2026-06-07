@@ -13,7 +13,7 @@ import {
   Waves
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { fetchHealthData, openHealthSocket } from "./api";
+import { fetchHealthData, openHealthSocket, refreshMoneyData } from "./api";
 import { HealthChart } from "./components/HealthChart";
 import { MoneyDashboard } from "./components/MoneyDashboard";
 import { RelationshipDashboard } from "./components/RelationshipDashboard";
@@ -69,6 +69,7 @@ function App() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [lastEventAt, setLastEventAt] = useState<string | null>(null);
   const [today, setToday] = useState(() => new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   async function load(signal?: AbortSignal) {
     const response = await fetchHealthData(signal);
@@ -79,6 +80,21 @@ function App() {
         ? current
         : response.data.metrics[0]?.key || "weight_kg"
     );
+  }
+
+  async function refresh() {
+    setIsRefreshing(true);
+    setError(null);
+    try {
+      if (activeDomain === "money") {
+        await refreshMoneyData();
+      }
+      await load();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   useEffect(() => {
@@ -101,13 +117,13 @@ function App() {
         if (event.type === "connected") {
           setSocketConnected(true);
         }
-        if (event.type === "health-data-updated") {
+        if (event.type === "health-data-updated" || event.type === "money-data-updated") {
           setLastEventAt(event.updatedAt ?? new Date().toISOString());
           load().catch((loadError) =>
             setError(loadError instanceof Error ? loadError.message : String(loadError))
           );
         }
-        if (event.type === "health-data-error") {
+        if (event.type === "health-data-error" || event.type === "money-data-error") {
           setError("Ошибка чтения обновленных данных");
         }
       });
@@ -195,11 +211,25 @@ function App() {
         <div className="status-strip">
           <div className={socketConnected ? "live-dot online" : "live-dot"} />
           <span>{statusText(socketConnected, lastEventAt)}</span>
-          <button className="icon-button" type="button" onClick={() => load()}>
-            <RefreshCw size={18} />
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => refresh()}
+            disabled={isRefreshing}
+            aria-label="Обновить"
+            title="Обновить"
+          >
+            <RefreshCw className={isRefreshing ? "spin" : undefined} size={18} />
           </button>
         </div>
       </header>
+
+      {error ? (
+        <section className="error-banner" role="alert">
+          <CircleAlert size={18} />
+          <span>{error}</span>
+        </section>
+      ) : null}
 
       <section className="domain-band">
         <div className="segmented domain-control" aria-label="Раздел">
@@ -231,7 +261,7 @@ function App() {
       </section>
 
       {activeDomain === "money" ? (
-        <MoneyDashboard money={data.money} />
+        <MoneyDashboard money={data.money} onPartnerMoneyUpdated={() => load()} />
       ) : activeDomain === "relationships" ? (
         <RelationshipDashboard today={today} />
       ) : selectedMetricInfo ? (

@@ -1,24 +1,29 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { useEffect, useState } from "react";
 import {
   Banknote,
   CalendarClock,
   CircleAlert,
   CreditCard,
+  LineChart,
   Landmark,
   PiggyBank,
+  Save,
+  Smartphone,
   Wallet
 } from "lucide-react";
+import { updatePartnerMoneyData } from "../api";
 import { formatDateShort, formatDateTime, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
 
-type MoneyKey = "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt";
+type MoneyKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
 
 type MoneyTile = {
   key: MoneyKey;
   label: string;
   icon: typeof Wallet;
-  tone: "blue" | "green" | "amber" | "red";
+  tone: "blue" | "green" | "teal" | "amber" | "red";
 };
 
 type CompositionSegment = {
@@ -27,9 +32,15 @@ type CompositionSegment = {
   color: string;
 };
 
+type MoneyDashboardProps = {
+  money: MoneyData;
+  onPartnerMoneyUpdated?: () => Promise<void> | void;
+};
+
 const MONEY_TILES: MoneyTile[] = [
   { key: "totalAmount", label: "Общая сумма", icon: Landmark, tone: "blue" },
   { key: "freeAmount", label: "Свободная", icon: Wallet, tone: "green" },
+  { key: "investmentAmount", label: "Инвестиции", icon: LineChart, tone: "teal" },
   { key: "reserveAmount", label: "Несгораемая", icon: PiggyBank, tone: "amber" },
   { key: "creditCardDebt", label: "Кредитки", icon: CreditCard, tone: "red" }
 ];
@@ -72,6 +83,7 @@ function rentPaidLabel(value: boolean | null) {
 function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): CompositionSegment[] {
   const segments: CompositionSegment[] = [
     { label: "Свободно", value: Math.max(0, latest.freeAmount ?? 0), color: "#15803d" },
+    { label: "Инвестиции", value: Math.max(0, latest.investmentAmount ?? 0), color: "#0f766e" },
     { label: "Несгораемая", value: Math.max(0, latest.reserveAmount ?? 0), color: "#f59e0b" },
     { label: "Деньги партнера", value: Math.max(0, money.partnerMoney ?? 0), color: "#64748b" },
     { label: "Кредитки", value: Math.max(0, latest.creditCardDebt ?? 0), color: "#dc2626" }
@@ -84,7 +96,71 @@ function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): Compos
   return segments.filter((segment) => segment.value > 0);
 }
 
-export function MoneyDashboard({ money }: { money: MoneyData }) {
+function syncStatusLabel(status: MoneyData["sync"]["status"]) {
+  if (status === "running") return "идет обновление";
+  if (status === "ok") return "обновлено";
+  if (status === "error") return "ошибка";
+  if (status === "disabled") return "выключено";
+  return "ожидание";
+}
+
+function inputValue(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function parseMoneyInput(value: string, label: string) {
+  const normalized = value.replace(/\s/g, "").replace(",", ".");
+  if (!normalized) throw new Error(`${label}: укажите сумму.`);
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
+  if (parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
+  return Math.round(parsed);
+}
+
+export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardProps) {
+  const [partnerForm, setPartnerForm] = useState({
+    partnerMoney: inputValue(money.partnerMoney),
+    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
+  });
+  const [partnerSaveStatus, setPartnerSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [partnerSaveError, setPartnerSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPartnerForm({
+      partnerMoney: inputValue(money.partnerMoney),
+      partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
+    });
+  }, [money.partnerMoney, money.partnerCreditCardDebt]);
+
+  function updatePartnerField(field: keyof typeof partnerForm, value: string) {
+    setPartnerForm((current) => ({ ...current, [field]: value }));
+    setPartnerSaveStatus("idle");
+    setPartnerSaveError(null);
+  }
+
+  async function savePartnerValues(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPartnerSaveStatus("saving");
+    setPartnerSaveError(null);
+
+    try {
+      const nextValues = {
+        partnerMoney: parseMoneyInput(partnerForm.partnerMoney, "Деньги партнера"),
+        partnerCreditCardDebt: parseMoneyInput(partnerForm.partnerCreditCardDebt, "Долг партнера")
+      };
+      await updatePartnerMoneyData(nextValues);
+      await onPartnerMoneyUpdated?.();
+      setPartnerSaveStatus("saved");
+    } catch (error) {
+      setPartnerSaveStatus("idle");
+      setPartnerSaveError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const partnerFormChanged =
+    partnerForm.partnerMoney !== inputValue(money.partnerMoney) ||
+    partnerForm.partnerCreditCardDebt !== inputValue(money.partnerCreditCardDebt);
+
   if (money.status !== "ready") {
     return (
       <section className="panel money-empty-panel">
@@ -115,6 +191,7 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
   const compositionSegments = buildCompositionSegments(money, latest);
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
   const latestRows = money.records.slice(-6).reverse();
+  const preSync = money.sync.preSync;
 
   return (
     <>
@@ -132,6 +209,20 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
             </article>
           );
         })}
+      </section>
+
+      <section className={`money-sync-strip ${preSync.configured ? "ready" : "needs-setup"}`}>
+        {preSync.configured ? <Smartphone size={20} /> : <CircleAlert size={20} />}
+        <div>
+          <strong>
+            {preSync.configured ? "Мобильный запуск ZenMoney подключен" : "Мобильный запуск ZenMoney отсутствует"}
+          </strong>
+          <span>
+            {preSync.configured
+              ? `${syncStatusLabel(money.sync.status)} · ожидание ${Math.round(preSync.waitMs / 1000)} сек`
+              : "ZENMONEY_PRE_SYNC_URL или ZENMONEY_PRE_SYNC_COMMAND ждёт настройки на VaioServer"}
+          </span>
+        </div>
       </section>
 
       <section className="main-grid money-grid">
@@ -201,10 +292,62 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
             </div>
           </div>
 
+          <form className="money-partner-form" onSubmit={savePartnerValues}>
+            <div className="money-partner-heading">
+              <strong>Ручные суммы партнера</strong>
+              <span>Сохраняются в Money.md</span>
+            </div>
+            <div className="money-partner-fields">
+              <label className="money-input-control">
+                <span>Деньги партнера</span>
+                <span className="money-input-shell">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={partnerForm.partnerMoney}
+                    onChange={(event) => updatePartnerField("partnerMoney", event.target.value)}
+                    aria-label="Деньги партнера"
+                  />
+                  <span>₽</span>
+                </span>
+              </label>
+              <label className="money-input-control">
+                <span>Долг партнера</span>
+                <span className="money-input-shell">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={partnerForm.partnerCreditCardDebt}
+                    onChange={(event) => updatePartnerField("partnerCreditCardDebt", event.target.value)}
+                    aria-label="Долг партнера"
+                  />
+                  <span>₽</span>
+                </span>
+              </label>
+            </div>
+            <div className="money-partner-actions">
+              <span className={`money-partner-status ${partnerSaveError ? "error" : ""}`} role="status">
+                {partnerSaveError ?? (partnerSaveStatus === "saved" ? "Сохранено" : "")}
+              </span>
+              <button
+                className="money-save-button"
+                type="submit"
+                disabled={partnerSaveStatus === "saving" || !partnerFormChanged}
+              >
+                <Save size={15} />
+                <span>{partnerSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
+              </button>
+            </div>
+          </form>
+
           <dl className="stats-list money-stats-list">
             <div>
               <dt>Свободная доля</dt>
               <dd>{formatPercent(money.summary.freeShare)}</dd>
+            </div>
+            <div>
+              <dt>Инвест. доля</dt>
+              <dd>{formatPercent(money.summary.investmentShare)}</dd>
             </div>
             <div>
               <dt>Долг / сумма</dt>
@@ -277,6 +420,7 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
                   <th>Дата</th>
                   <th>Общая</th>
                   <th>Свободная</th>
+                  <th>Инвестиции</th>
                   <th>Резерв</th>
                   <th>Кредитки</th>
                   <th>Аренда</th>
@@ -288,6 +432,7 @@ export function MoneyDashboard({ money }: { money: MoneyData }) {
                     <td>{record.date}</td>
                     <td>{formatMoney(record.totalAmount)}</td>
                     <td>{formatMoney(record.freeAmount)}</td>
+                    <td>{formatMoney(record.investmentAmount)}</td>
                     <td>{formatMoney(record.reserveAmount)}</td>
                     <td>{formatMoney(record.creditCardDebt)}</td>
                     <td>{rentPaidLabel(record.rentPaid)}</td>

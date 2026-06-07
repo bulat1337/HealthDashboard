@@ -8,6 +8,7 @@ Personal life dashboard for health, money, relationships, and other long-running
 
 - Tracks Xiaomi Body Scale measurements with charts, metric cards, outlier-aware stats, and WebSocket refreshes.
 - Reads a local `Money.md` file and turns finance notes into a dashboard view.
+- Updates the money note from ZenMoney accounts through a local sync script.
 - Shows a configurable relationship counter with local-only title, dates, and image settings.
 - Accepts protected scale measurements through `POST /api/health-data/measurements`.
 - Runs as one local Express server that serves the Vite React app and API.
@@ -60,11 +61,21 @@ Supported configuration:
 | `HEALTH_DATA_FILE` | Optional direct path to `xiaomi-body-scale-data.json`. |
 | `MONEY_DATA_FILE` | Markdown file used by the money dashboard. |
 | `MONEY_PARTNER_LABEL` | Optional local label for partner-specific money notes. |
+| `ZENMONEY_TOKEN_FILE` | Optional local ZenMoney OAuth token JSON path. |
+| `ZENMONEY_CLIENT_ID` | Optional ZenMoney OAuth client id. |
+| `ZENMONEY_CLIENT_SECRET` | Optional ZenMoney OAuth client secret. |
+| `ZENMONEY_REDIRECT_URI` | Optional ZenMoney OAuth callback URL. |
+| `MONEY_SYNC_ENABLED` | Enables server-side scheduled ZenMoney sync. Production default: enabled unless set to `false`. |
+| `MONEY_SYNC_START_HOUR` / `MONEY_SYNC_END_HOUR` / `MONEY_SYNC_FINAL_MINUTE` | Server-side money sync window. Defaults: `08:00` through `23:30`. |
 | `HEALTH_INGEST_TOKEN` | Enables authenticated POST ingest for scale measurements. |
 | `HOST` / `PORT` | Express bind host and port. Defaults: `127.0.0.1:5000`. |
 | `VITE_RELATIONSHIP_*` | Local-only relationship title, start date, photo date, caption, and photo URL. |
 
 Local files under `data/assets` are served from `/local-assets/*`, which is useful for private relationship photos kept outside Git.
+
+ZenMoney setup for automatic money-note updates lives in [docs/zenmoney-money-sync.md](docs/zenmoney-money-sync.md).
+
+In production, the Express server can run the ZenMoney sync itself and the money tab refresh button calls `POST /api/money-data/refresh`.
 
 ## Scale Ingest
 
@@ -100,4 +111,6 @@ docs/assets/                       Public README images
 npm run dev      # development server
 npm run build    # TypeScript checks and Vite production build
 npm run start    # production-mode Express server
+npm run money:zenmoney:dry-run  # preview the ZenMoney-derived Money.md row
+npm run money:zenmoney:write    # write or update today's Money.md row
 ```

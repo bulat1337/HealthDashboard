@@ -67,6 +67,7 @@ export type MoneyRecord = {
   dateIso: string;
   totalAmount: number | null;
   freeAmount: number | null;
+  investmentAmount: number | null;
   reserveAmount: number | null;
   creditCardDebt: number | null;
   rentPaid: boolean | null;
@@ -87,10 +88,29 @@ export type MoneySummary = {
   lastDateIso: string | null;
   totalChange: number | null;
   freeChange: number | null;
+  investmentChange: number | null;
   reserveChange: number | null;
   creditCardDebtChange: number | null;
   freeShare: number | null;
+  investmentShare: number | null;
   debtToTotalShare: number | null;
+};
+
+export type MoneySyncState = {
+  status: "idle" | "running" | "ok" | "error" | "disabled";
+  enabled: boolean;
+  source: string;
+  trigger: "manual" | "schedule" | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string | null;
+  preSync: {
+    configured: boolean;
+    urlConfigured: boolean;
+    commandConfigured: boolean;
+    waitMs: number;
+  };
 };
 
 export type MoneyData = {
@@ -98,6 +118,7 @@ export type MoneyData = {
   sourceFile: string;
   sourceMtimeMs: number | null;
   lastLoadError: string | null;
+  sync: MoneySyncState;
   monthlyIncome: number | null;
   rentMonthly: number | null;
   partnerMoney: number | null;

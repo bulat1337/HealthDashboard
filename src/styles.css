@@ -180,6 +180,32 @@ button {
   color: #fff;
 }
 
+.icon-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 18px;
+  padding: 11px 13px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #991b1b;
+  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.08);
+}
+
+.error-banner svg {
+  flex: 0 0 auto;
+}
+
+.error-banner span {
+  min-width: 0;
+}
+
 .section-kicker {
   display: inline-flex;
   width: fit-content;
@@ -666,7 +692,7 @@ select:focus-visible {
 }
 
 .money-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .money-tile {
@@ -683,6 +709,11 @@ select:focus-visible {
   color: var(--green);
 }
 
+.money-tile.tone-teal::before,
+.money-tile.tone-teal svg {
+  color: #0f766e;
+}
+
 .money-tile.tone-amber::before,
 .money-tile.tone-amber svg {
   color: var(--amber);
@@ -693,12 +724,67 @@ select:focus-visible {
   color: var(--coral);
 }
 
+.money-sync-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+}
+
+.money-sync-strip svg {
+  flex: 0 0 auto;
+}
+
+.money-sync-strip div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.money-sync-strip strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.money-sync-strip span {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.money-sync-strip.ready {
+  border-color: rgba(21, 128, 61, 0.22);
+  background: #f0fdf4;
+}
+
+.money-sync-strip.ready svg {
+  color: var(--green);
+}
+
+.money-sync-strip.needs-setup {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: #fffbeb;
+}
+
+.money-sync-strip.needs-setup svg {
+  color: var(--amber);
+}
+
 .money-tile.tone-blue::before {
   background: var(--primary);
 }
 
 .money-tile.tone-green::before {
   background: var(--green);
+}
+
+.money-tile.tone-teal::before {
+  background: #0f766e;
 }
 
 .money-tile.tone-amber::before {
@@ -711,6 +797,10 @@ select:focus-visible {
 
 .money-tile.tone-green strong {
   color: var(--green);
+}
+
+.money-tile.tone-teal strong {
+  color: #0f766e;
 }
 
 .money-tile.tone-amber strong {
@@ -1051,6 +1141,116 @@ select:focus-visible {
   margin-top: 14px;
 }
 
+.money-partner-form {
+  display: grid;
+  gap: 11px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.money-partner-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.money-partner-heading strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.money-partner-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.money-partner-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.money-input-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.money-input-shell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 9px;
+  color: var(--muted);
+}
+
+.money-input-shell:focus-within {
+  border-color: rgba(30, 64, 175, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.money-input-shell input {
+  min-width: 0;
+  width: 100%;
+  height: 38px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 700 14px/1 "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.money-input-shell > span {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+
+.money-partner-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.money-partner-status {
+  min-width: 0;
+  color: var(--green);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.money-partner-status.error {
+  color: #991b1b;
+}
+
+.money-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.money-save-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .money-bottom-grid {
   display: grid;
   grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
@@ -1267,6 +1467,20 @@ select:focus-visible {
 
   .stats-list {
     grid-template-columns: 1fr;
+  }
+
+  .money-partner-heading,
+  .money-partner-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .money-partner-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .money-save-button {
+    width: 100%;
   }
 
   .chart-shell {
