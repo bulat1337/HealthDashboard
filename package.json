@@ -8,7 +8,15 @@
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "preview": "npm run build && NODE_ENV=production tsx server/index.ts"
+    "preview": "npm run build && NODE_ENV=production tsx server/index.ts",
+    "money:zenmoney:init": "node scripts/zenmoney-money-sync.mjs init-config",
+    "money:zenmoney:auth-url": "node scripts/zenmoney-money-sync.mjs auth-url",
+    "money:zenmoney:auth-server": "node scripts/zenmoney-money-sync.mjs auth-server",
+    "money:zenmoney:exchange-code": "node scripts/zenmoney-money-sync.mjs exchange-code",
+    "money:zenmoney:import-token": "node scripts/zenmoney-money-sync.mjs import-token",
+    "money:zenmoney:accounts": "node scripts/zenmoney-money-sync.mjs accounts",
+    "money:zenmoney:dry-run": "node scripts/zenmoney-money-sync.mjs dry-run",
+    "money:zenmoney:write": "node scripts/zenmoney-money-sync.mjs write"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { formatDateShort, formatNumber } from "../stats";
 import type { MoneyRecord } from "../types";
 
-type MoneySeriesKey = "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt";
+type MoneySeriesKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
 
 type MoneySeries = {
   key: MoneySeriesKey;
@@ -23,6 +23,7 @@ const MARGIN = { top: 18, right: 22, bottom: 42, left: 72 };
 const MONEY_SERIES: MoneySeries[] = [
   { key: "totalAmount", label: "Общая", color: "#1e40af" },
   { key: "freeAmount", label: "Свободная", color: "#15803d" },
+  { key: "investmentAmount", label: "Инвестиции", color: "#0f766e" },
   { key: "reserveAmount", label: "Несгораемая", color: "#f59e0b" },
   { key: "creditCardDebt", label: "Долг", color: "#dc2626", dash: "6 5" }
 ];

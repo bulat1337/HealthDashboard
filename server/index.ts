@@ -1,13 +1,16 @@
 import chokidar from "chokidar";
 import express from "express";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { WebSocketServer } from "ws";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 
+const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
@@ -57,6 +60,31 @@ const HOST = process.env.HOST || "127.0.0.1";
 const HEALTH_INGEST_TOKEN = process.env.HEALTH_INGEST_TOKEN || "";
 const HEALTH_DEFAULT_TIMEZONE = process.env.HEALTH_DEFAULT_TIMEZONE || "UTC";
 const isProduction = process.env.NODE_ENV === "production";
+const MONEY_SYNC_SCRIPT = path.join(rootDir, "scripts", "zenmoney-money-sync.mjs");
+const MONEY_SYNC_ENABLED =
+  process.env.MONEY_SYNC_ENABLED === "true" ||
+  (isProduction && process.env.MONEY_SYNC_ENABLED !== "false");
+const MONEY_SYNC_TIMEZONE = process.env.MONEY_SYNC_TIMEZONE || HEALTH_DEFAULT_TIMEZONE || "Europe/Moscow";
+const MONEY_SYNC_START_HOUR = Number(process.env.MONEY_SYNC_START_HOUR || 8);
+const MONEY_SYNC_END_HOUR = Number(process.env.MONEY_SYNC_END_HOUR || 23);
+const MONEY_SYNC_FINAL_MINUTE = Number(process.env.MONEY_SYNC_FINAL_MINUTE || 30);
+const MONEY_SYNC_TIMEOUT_MS = Number(process.env.MONEY_SYNC_TIMEOUT_MS || 180000);
+const MONEY_SYNC_SOURCE = "zenmoney";
+const MONEY_PRE_SYNC_URL_CONFIGURED = Boolean(process.env.ZENMONEY_PRE_SYNC_URL?.trim());
+const MONEY_PRE_SYNC_COMMAND_CONFIGURED = Boolean(process.env.ZENMONEY_PRE_SYNC_COMMAND?.trim());
+const MONEY_PRE_SYNC_WAIT_MS = Number(process.env.ZENMONEY_PRE_SYNC_WAIT_MS || 45000);
+const MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS = [
+  `Долг по кредиткам ${MONEY_PARTNER_LABEL}`,
+  "Долг по кредиткам партнера",
+  "Долг по кредиткам партнёра",
+  "Partner credit card debt"
+];
+const MONEY_PARTNER_MONEY_LABELS = [
+  `Деньги ${MONEY_PARTNER_LABEL}`,
+  "Деньги партнера",
+  "Деньги партнёра",
+  "Partner money"
+];
 
 function publicPath(filePath: string) {
   const relative = path.relative(rootDir, filePath);
@@ -201,6 +229,7 @@ type MoneyRecord = {
   dateIso: string;
   totalAmount: number | null;
   freeAmount: number | null;
+  investmentAmount: number | null;
   reserveAmount: number | null;
   creditCardDebt: number | null;
   rentPaid: boolean | null;
@@ -221,10 +250,29 @@ type MoneySummary = {
   lastDateIso: string | null;
   totalChange: number | null;
   freeChange: number | null;
+  investmentChange: number | null;
   reserveChange: number | null;
   creditCardDebtChange: number | null;
   freeShare: number | null;
+  investmentShare: number | null;
   debtToTotalShare: number | null;
+};
+
+type MoneyRuntimeSyncState = {
+  status: "idle" | "running" | "ok" | "error" | "disabled";
+  enabled: boolean;
+  source: string;
+  trigger: MoneySyncTrigger | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string | null;
+  preSync: {
+    configured: boolean;
+    urlConfigured: boolean;
+    commandConfigured: boolean;
+    waitMs: number;
+  };
 };
 
 type MoneyData = {
@@ -232,6 +280,7 @@ type MoneyData = {
   sourceFile: string;
   sourceMtimeMs: number | null;
   lastLoadError: string | null;
+  sync: MoneyRuntimeSyncState;
   monthlyIncome: number | null;
   rentMonthly: number | null;
   partnerMoney: number | null;
@@ -366,6 +415,12 @@ function parseLabeledMoneyAmount(text: string, labels: string[]) {
   return null;
 }
 
+function formatMoneyAmount(value: number) {
+  return Math.round(value)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+}
+
 function parseMoneyDate(date: string | undefined): string | null {
   const match = date?.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
   if (!match) return null;
@@ -441,7 +496,7 @@ function findColumn(headers: string[], text: string) {
 function valueDelta(
   latest: MoneyRecord | null,
   previous: MoneyRecord | null,
-  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt">
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt">
 ) {
   const latestValue = latest?.[key];
   const previousValue = previous?.[key];
@@ -451,7 +506,7 @@ function valueDelta(
 
 function firstRecordWithValue(
   records: MoneyRecord[],
-  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "reserveAmount" | "creditCardDebt">
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt">
 ) {
   return records.find((record) => typeof record[key] === "number") ?? null;
 }
@@ -462,6 +517,7 @@ function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: strin
     sourceFile: publicPath(MONEY_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     lastLoadError: error,
+    sync: publicMoneySyncState(),
     monthlyIncome: null,
     rentMonthly: null,
     partnerMoney: null,
@@ -477,9 +533,11 @@ function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: strin
       lastDateIso: null,
       totalChange: null,
       freeChange: null,
+      investmentChange: null,
       reserveChange: null,
       creditCardDebtChange: null,
       freeShare: null,
+      investmentShare: null,
       debtToTotalShare: null
     }
   };
@@ -502,6 +560,7 @@ function loadMoneyData(): MoneyData {
     const moneyDateColumn = findColumn(moneyTable?.headers ?? [], "Дата");
     const totalColumn = findColumn(moneyTable?.headers ?? [], "Общая сумма");
     const freeColumn = findColumn(moneyTable?.headers ?? [], "Свободная сумма");
+    const investmentColumn = findColumn(moneyTable?.headers ?? [], "Инвестиции");
     const reserveColumn = findColumn(moneyTable?.headers ?? [], "Несгораемая сумма");
     const debtColumn = findColumn(moneyTable?.headers ?? [], "Долг по кредиткам");
     const rentPaidColumn = findColumn(moneyTable?.headers ?? [], "Аренда заплачена");
@@ -517,6 +576,7 @@ function loadMoneyData(): MoneyData {
           dateIso,
           totalAmount: parseMoneyAmount(row[totalColumn]),
           freeAmount: parseMoneyAmount(row[freeColumn]),
+          investmentAmount: parseMoneyAmount(row[investmentColumn]),
           reserveAmount: parseMoneyAmount(row[reserveColumn]),
           creditCardDebt: parseMoneyAmount(row[debtColumn]),
           rentPaid: parseRentPaid(row[rentPaidColumn])
@@ -553,21 +613,15 @@ function loadMoneyData(): MoneyData {
     const firstRecord = records[0] ?? null;
     const monthlyIncome = parseMoneyAmount(text.match(/\*\*Доход:\*\*\s*([^\n]+)/)?.[1]);
     const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]);
-    const partnerCreditCardDebt = parseLabeledMoneyAmount(text, [
-      `Долг по кредиткам ${MONEY_PARTNER_LABEL}`,
-      "Долг по кредиткам партнера",
-      "Долг по кредиткам партнёра",
-      "Partner credit card debt"
-    ]);
-    const partnerMoney = parseLabeledMoneyAmount(text, [
-      `Деньги ${MONEY_PARTNER_LABEL}`,
-      "Деньги партнера",
-      "Деньги партнёра",
-      "Partner money"
-    ]);
+    const partnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS);
+    const partnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS);
     const freeShare =
       typeof latestRecord?.freeAmount === "number" && latestRecord.totalAmount
         ? round(latestRecord.freeAmount / latestRecord.totalAmount, 4)
+        : null;
+    const investmentShare =
+      typeof latestRecord?.investmentAmount === "number" && latestRecord.totalAmount
+        ? round(latestRecord.investmentAmount / latestRecord.totalAmount, 4)
         : null;
     const debtToTotalShare =
       typeof latestRecord?.creditCardDebt === "number" && latestRecord.totalAmount
@@ -579,6 +633,7 @@ function loadMoneyData(): MoneyData {
       sourceFile: MONEY_FILE,
       sourceMtimeMs: stat.mtimeMs,
       lastLoadError: null,
+      sync: publicMoneySyncState(),
       monthlyIncome,
       rentMonthly,
       partnerMoney,
@@ -594,6 +649,11 @@ function loadMoneyData(): MoneyData {
         lastDateIso: latestRecord?.dateIso ?? null,
         totalChange: valueDelta(latestRecord, firstRecordWithValue(records, "totalAmount"), "totalAmount"),
         freeChange: valueDelta(latestRecord, firstRecordWithValue(records, "freeAmount"), "freeAmount"),
+        investmentChange: valueDelta(
+          latestRecord,
+          firstRecordWithValue(records, "investmentAmount"),
+          "investmentAmount"
+        ),
         reserveChange: valueDelta(latestRecord, firstRecordWithValue(records, "reserveAmount"), "reserveAmount"),
         creditCardDebtChange: valueDelta(
           latestRecord,
@@ -601,6 +661,7 @@ function loadMoneyData(): MoneyData {
           "creditCardDebt"
         ),
         freeShare,
+        investmentShare,
         debtToTotalShare
       }
     };
@@ -964,6 +1025,419 @@ function getCachedData() {
   return cachedData;
 }
 
+type MoneyPartnerUpdate = {
+  partnerMoney?: number;
+  partnerCreditCardDebt?: number;
+};
+
+function normalizeMoneyPartnerInput(value: unknown, label: string) {
+  const amount = typeof value === "number" ? value : parseMoneyAmount(typeof value === "string" ? value : undefined);
+  if (amount === null || !Number.isFinite(amount)) {
+    throw new Error(`${label}: укажите число в рублях.`);
+  }
+  if (amount < 0) {
+    throw new Error(`${label}: значение должно быть 0 или больше.`);
+  }
+  if (amount > 1_000_000_000_000) {
+    throw new Error(`${label}: значение слишком большое.`);
+  }
+  return Math.round(amount);
+}
+
+function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
+  if (!body || typeof body !== "object") {
+    throw new Error("Тело запроса должно быть JSON-объектом.");
+  }
+
+  const candidate = body as {
+    partnerMoney?: unknown;
+    partnerCreditCardDebt?: unknown;
+  };
+  const update: MoneyPartnerUpdate = {};
+
+  if ("partnerMoney" in candidate) {
+    update.partnerMoney = normalizeMoneyPartnerInput(candidate.partnerMoney, "Деньги партнера");
+  }
+  if ("partnerCreditCardDebt" in candidate) {
+    update.partnerCreditCardDebt = normalizeMoneyPartnerInput(candidate.partnerCreditCardDebt, "Долг партнера");
+  }
+  if (update.partnerMoney === undefined && update.partnerCreditCardDebt === undefined) {
+    throw new Error("Передайте partnerMoney или partnerCreditCardDebt.");
+  }
+
+  return update;
+}
+
+function replaceLabeledMoneyAmount(text: string, labels: string[], value: number) {
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const rendered = formatMoneyAmount(value);
+
+  for (const label of labels) {
+    const pattern = new RegExp(`^(.*?${escapeRegExp(label)}\\s*:\\*?\\*?\\s*)(.*)$`, "i");
+    const lineIndex = lines.findIndex((line) => pattern.test(line));
+    if (lineIndex !== -1) {
+      lines[lineIndex] = lines[lineIndex].replace(pattern, `$1${rendered}`);
+      return lines.join(newline);
+    }
+  }
+
+  throw new Error(`Money.md is missing editable value: ${labels[0]}.`);
+}
+
+function renderMarkdownTableRow(cells: string[], widths: number[]) {
+  return `| ${cells.map((cell, index) => cell.padEnd(widths[index] ?? 0)).join(" | ")} |`;
+}
+
+function updateLatestMoneyRowForPartnerValues(
+  text: string,
+  oldValues: Required<MoneyPartnerUpdate>,
+  nextValues: Required<MoneyPartnerUpdate>
+) {
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].trim().startsWith("|")) {
+      index += 1;
+      continue;
+    }
+
+    const blockStart = index;
+    while (index < lines.length && lines[index].trim().startsWith("|")) index += 1;
+
+    const parsedRows = lines
+      .slice(blockStart, index)
+      .map((line, offset) => ({
+        lineIndex: blockStart + offset,
+        cells: parseMarkdownTableLine(line)
+      }))
+      .filter((row) => row.cells.length > 0);
+
+    if (parsedRows.length < 2) continue;
+
+    const headers = parsedRows[0].cells;
+    const dateColumn = findColumn(headers, "Дата");
+    const freeColumn = findColumn(headers, "Свободная сумма");
+    const debtColumn = findColumn(headers, "Долг по кредиткам");
+    if (dateColumn === -1 || freeColumn === -1 || debtColumn === -1) continue;
+
+    const dataRows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row.cells));
+    const latestRow = [...dataRows].reverse().find((row) => parseMoneyDate(row.cells[dateColumn]) !== null);
+    if (!latestRow) continue;
+
+    const freeAmount = parseMoneyAmount(latestRow.cells[freeColumn]);
+    const creditCardDebt = parseMoneyAmount(latestRow.cells[debtColumn]);
+    if (freeAmount === null || creditCardDebt === null) {
+      throw new Error("Latest Money.md row is missing readable free amount or credit card debt.");
+    }
+
+    const partnerMoneyDelta = nextValues.partnerMoney - oldValues.partnerMoney;
+    const partnerDebtDelta = nextValues.partnerCreditCardDebt - oldValues.partnerCreditCardDebt;
+    const nextFreeAmount = freeAmount - partnerMoneyDelta - partnerDebtDelta;
+    const nextCreditCardDebt = creditCardDebt + partnerDebtDelta;
+    const nextCells = [...latestRow.cells];
+    nextCells[freeColumn] = formatMoneyAmount(nextFreeAmount);
+    nextCells[debtColumn] = formatMoneyAmount(nextCreditCardDebt);
+
+    const tableCells = parsedRows
+      .filter((row) => !isMarkdownSeparator(row.cells))
+      .map((row) => (row.lineIndex === latestRow.lineIndex ? nextCells : row.cells));
+    const columnCount = Math.max(...tableCells.map((cells) => cells.length), nextCells.length);
+    const widths = Array.from({ length: columnCount }, (_, columnIndex) =>
+      Math.max(...tableCells.map((cells) => cells[columnIndex]?.length ?? 0))
+    );
+    lines[latestRow.lineIndex] = renderMarkdownTableRow(nextCells, widths);
+    return lines.join(newline);
+  }
+
+  throw new Error("Money table with columns Дата and Долг по кредиткам was not found.");
+}
+
+function updateMoneyPartnerValuesText(text: string, update: MoneyPartnerUpdate) {
+  const oldPartnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS);
+  const oldPartnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS);
+  if (oldPartnerMoney === null || oldPartnerCreditCardDebt === null) {
+    throw new Error("Money.md is missing readable partner money values.");
+  }
+
+  const nextValues: Required<MoneyPartnerUpdate> = {
+    partnerMoney: update.partnerMoney ?? oldPartnerMoney,
+    partnerCreditCardDebt: update.partnerCreditCardDebt ?? oldPartnerCreditCardDebt
+  };
+  const oldValues: Required<MoneyPartnerUpdate> = {
+    partnerMoney: oldPartnerMoney,
+    partnerCreditCardDebt: oldPartnerCreditCardDebt
+  };
+
+  let nextText = text;
+  if (update.partnerCreditCardDebt !== undefined) {
+    nextText = replaceLabeledMoneyAmount(
+      nextText,
+      MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS,
+      nextValues.partnerCreditCardDebt
+    );
+  }
+  if (update.partnerMoney !== undefined) {
+    nextText = replaceLabeledMoneyAmount(nextText, MONEY_PARTNER_MONEY_LABELS, nextValues.partnerMoney);
+  }
+  if (
+    nextValues.partnerMoney !== oldValues.partnerMoney ||
+    nextValues.partnerCreditCardDebt !== oldValues.partnerCreditCardDebt
+  ) {
+    nextText = updateLatestMoneyRowForPartnerValues(nextText, oldValues, nextValues);
+  }
+
+  return {
+    text: nextText,
+    values: nextValues
+  };
+}
+
+type MoneySyncTrigger = "manual" | "schedule";
+
+type MoneySyncState = {
+  status: "idle" | "running" | "ok" | "error" | "disabled";
+  enabled: boolean;
+  source: string;
+  trigger: MoneySyncTrigger | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string | null;
+  lastResult: unknown | null;
+};
+
+let moneySyncInFlight: Promise<unknown> | null = null;
+let moneySyncTimer: NodeJS.Timeout | null = null;
+const moneySyncState: MoneySyncState = {
+  status: MONEY_SYNC_ENABLED ? "idle" : "disabled",
+  enabled: MONEY_SYNC_ENABLED,
+  source: MONEY_SYNC_SOURCE,
+  trigger: null,
+  startedAt: null,
+  finishedAt: null,
+  nextRunAt: null,
+  lastError: null,
+  lastResult: null
+};
+
+function publicMoneySyncState(): MoneyRuntimeSyncState {
+  return {
+    status: moneySyncState.status,
+    enabled: moneySyncState.enabled,
+    source: moneySyncState.source,
+    trigger: moneySyncState.trigger,
+    startedAt: moneySyncState.startedAt,
+    finishedAt: moneySyncState.finishedAt,
+    nextRunAt: moneySyncState.nextRunAt,
+    lastError: moneySyncState.lastError,
+    preSync: {
+      configured: MONEY_PRE_SYNC_URL_CONFIGURED || MONEY_PRE_SYNC_COMMAND_CONFIGURED,
+      urlConfigured: MONEY_PRE_SYNC_URL_CONFIGURED,
+      commandConfigured: MONEY_PRE_SYNC_COMMAND_CONFIGURED,
+      waitMs: MONEY_PRE_SYNC_WAIT_MS
+    }
+  };
+}
+
+function parseJsonOutput(stdout: string) {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  return JSON.parse(trimmed);
+}
+
+function publicMoneySyncResult(result: unknown) {
+  if (!result || typeof result !== "object") return result;
+  const candidate = result as {
+    row?: unknown;
+    source?: unknown;
+    serverTimestamp?: unknown;
+  };
+  return {
+    source: candidate.source ?? MONEY_SYNC_SOURCE,
+    row: candidate.row ?? null,
+    serverTimestamp: candidate.serverTimestamp ?? null
+  };
+}
+
+function childErrorText(error: unknown) {
+  if (error && typeof error === "object") {
+    const candidate = error as { stderr?: unknown; stdout?: unknown; message?: unknown };
+    const stderr = typeof candidate.stderr === "string" ? candidate.stderr.trim() : "";
+    const stdout = typeof candidate.stdout === "string" ? candidate.stdout.trim() : "";
+    if (stderr) return stderr;
+    if (stdout) return stdout;
+    if (typeof candidate.message === "string") return candidate.message;
+  }
+  return errorText(error);
+}
+
+async function runMoneySync(trigger: MoneySyncTrigger) {
+  if (moneySyncInFlight) return moneySyncInFlight;
+
+  moneySyncState.status = "running";
+  moneySyncState.source = MONEY_SYNC_SOURCE;
+  moneySyncState.trigger = trigger;
+  moneySyncState.startedAt = new Date().toISOString();
+  moneySyncState.finishedAt = null;
+  moneySyncState.lastError = null;
+
+  moneySyncInFlight = (async () => {
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        [MONEY_SYNC_SCRIPT, "write", "--json"],
+        {
+          cwd: rootDir,
+          env: {
+            ...process.env,
+            MONEY_DATA_FILE: MONEY_FILE,
+            MONEY_SYNC_SOURCE,
+            MONEY_SYNC_TIMEZONE
+          },
+          encoding: "utf8",
+          maxBuffer: 2 * 1024 * 1024,
+          timeout: MONEY_SYNC_TIMEOUT_MS
+        }
+      );
+      const result = parseJsonOutput(stdout);
+      const publicResult = publicMoneySyncResult(result);
+      refreshCache();
+      const updatedAt = new Date().toISOString();
+      moneySyncState.status = "ok";
+      moneySyncState.finishedAt = updatedAt;
+      moneySyncState.lastResult = publicResult;
+      broadcast({
+        type: "money-data-updated",
+        event: trigger,
+        path: publicPath(MONEY_FILE),
+        version: dataVersion,
+        updatedAt,
+        result: publicResult
+      });
+      return publicResult;
+    } catch (error) {
+      const message = childErrorText(error);
+      moneySyncState.status = "error";
+      moneySyncState.finishedAt = new Date().toISOString();
+      moneySyncState.lastError = message;
+      broadcast({
+        type: "money-data-error",
+        event: trigger,
+        path: publicPath(MONEY_FILE),
+        error: message,
+        updatedAt: moneySyncState.finishedAt
+      });
+      throw new Error(message);
+    } finally {
+      moneySyncInFlight = null;
+    }
+  })();
+
+  return moneySyncInFlight;
+}
+
+function zonedParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second)
+  };
+}
+
+function utcTimestamp(parts: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}) {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+}
+
+function zonedDate(parts: {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}, timeZone: string) {
+  const desired = utcTimestamp(parts);
+  const guess = new Date(desired);
+  const actual = utcTimestamp(zonedParts(guess, timeZone));
+  return new Date(desired + (desired - actual));
+}
+
+function moneySyncTimes() {
+  const times = [];
+  for (let hour = MONEY_SYNC_START_HOUR; hour <= MONEY_SYNC_END_HOUR; hour += 1) {
+    times.push({ hour, minute: 0 });
+  }
+  if (MONEY_SYNC_FINAL_MINUTE > 0) {
+    times.push({ hour: MONEY_SYNC_END_HOUR, minute: MONEY_SYNC_FINAL_MINUTE });
+  }
+  return times
+    .filter((time) => time.hour >= 0 && time.hour <= 23 && time.minute >= 0 && time.minute <= 59)
+    .sort((a, b) => a.hour - b.hour || a.minute - b.minute);
+}
+
+function nextMoneySyncDate(now = new Date()) {
+  const current = zonedParts(now, MONEY_SYNC_TIMEZONE);
+  for (let dayOffset = 0; dayOffset < 3; dayOffset += 1) {
+    for (const time of moneySyncTimes()) {
+      const candidate = zonedDate(
+        {
+          year: current.year,
+          month: current.month,
+          day: current.day + dayOffset,
+          hour: time.hour,
+          minute: time.minute,
+          second: 0
+        },
+        MONEY_SYNC_TIMEZONE
+      );
+      if (candidate.getTime() > now.getTime() + 1000) return candidate;
+    }
+  }
+  return null;
+}
+
+function scheduleNextMoneySync() {
+  if (!MONEY_SYNC_ENABLED) return;
+  if (moneySyncTimer) clearTimeout(moneySyncTimer);
+
+  const nextRun = nextMoneySyncDate();
+  moneySyncState.nextRunAt = nextRun?.toISOString() ?? null;
+  if (!nextRun) return;
+
+  const delayMs = Math.max(1000, nextRun.getTime() - Date.now());
+  moneySyncTimer = setTimeout(() => {
+    runMoneySync("schedule")
+      .catch((error) => {
+        console.error(`Money sync failed: ${childErrorText(error)}`);
+      })
+      .finally(() => scheduleNextMoneySync());
+  }, delayMs);
+}
+
 const app = express();
 const server = http.createServer(app);
 const sockets = new WebSocketServer({ server, path: "/ws" });
@@ -1030,6 +1504,61 @@ app.post("/api/health-data/measurements", (request, response) => {
   }
 });
 
+app.post("/api/money-data/refresh", async (_request, response) => {
+  try {
+    const result = await runMoneySync("manual");
+    response.json({
+      ok: true,
+      version: dataVersion,
+      updatedAt: moneySyncState.finishedAt,
+      result,
+      sync: publicMoneySyncState()
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      error: errorText(error),
+      sync: publicMoneySyncState()
+    });
+  }
+});
+
+app.patch("/api/money-data/partner", (request, response) => {
+  try {
+    const update = moneyPartnerUpdateFromBody(request.body);
+    const currentText = fs.readFileSync(MONEY_FILE, "utf8");
+    const result = updateMoneyPartnerValuesText(currentText, update);
+
+    if (result.text !== currentText) {
+      fs.writeFileSync(MONEY_FILE, result.text, "utf8");
+    }
+
+    const data = refreshCache();
+    const updatedAt = new Date().toISOString();
+    broadcast({
+      type: "money-data-updated",
+      event: "partner-settings",
+      path: publicPath(MONEY_FILE),
+      version: dataVersion,
+      updatedAt
+    });
+
+    response.json({
+      ok: true,
+      version: dataVersion,
+      updatedAt,
+      partnerMoney: result.values.partnerMoney,
+      partnerCreditCardDebt: result.values.partnerCreditCardDebt,
+      money: data.money
+    });
+  } catch (error) {
+    response.status(400).json({
+      ok: false,
+      error: errorText(error)
+    });
+  }
+});
+
 app.get("/api/status", (_request, response) => {
   const exists = fs.existsSync(DATA_FILE);
   const stat = exists ? fs.statSync(DATA_FILE) : null;
@@ -1046,7 +1575,11 @@ app.get("/api/status", (_request, response) => {
       status: money.status,
       sourceFile: publicPath(MONEY_FILE),
       sourceMtimeMs: moneyStat?.mtimeMs ?? null,
-      lastLoadError: money.lastLoadError
+      lastLoadError: money.lastLoadError,
+      sync: {
+        ...moneySyncState,
+        preSync: publicMoneySyncState().preSync
+      }
     },
     lastLoadError
   });
@@ -1124,6 +1657,7 @@ watcher.on("all", (event, changedPath) => {
 });
 
 refreshCache();
+scheduleNextMoneySync();
 
 async function configureFrontend() {
   if (isProduction) {
@@ -1165,4 +1699,9 @@ server.listen(PORT, HOST, () => {
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;
   console.log(`Life Dashboard: http://${shownHost}:${PORT}`);
   console.log(`Data source: ${publicPath(DATA_FILE)}`);
+  if (MONEY_SYNC_ENABLED) {
+    console.log(`Money sync: enabled, next run ${moneySyncState.nextRunAt ?? "not scheduled"}`);
+  } else {
+    console.log("Money sync: disabled");
+  }
 });
