@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700;800&display=swap");
 
 :root {
   color-scheme: light;
@@ -274,11 +274,12 @@ button {
 .relationship-title-block h2 {
   margin: 0;
   color: var(--romance-ink);
-  font-family: "Caveat", "Fira Sans", ui-sans-serif, system-ui, sans-serif;
-  font-size: clamp(58px, 7vw, 92px);
-  font-weight: 700;
-  line-height: 0.95;
+  font-family: "Fira Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1.03;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .relationship-title-block p {
@@ -353,7 +354,7 @@ button {
 }
 
 .relationship-metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 0;
 }
 
@@ -375,10 +376,6 @@ button {
   background: var(--primary);
 }
 
-.relationship-tile.tone-green::before {
-  background: var(--green);
-}
-
 .relationship-tile.tone-rose svg,
 .relationship-tile.tone-rose strong {
   color: var(--romance-primary);
@@ -394,24 +391,17 @@ button {
   color: var(--primary);
 }
 
-.relationship-tile.tone-green svg,
-.relationship-tile.tone-green strong {
-  color: var(--green);
-}
-
 .relationship-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
-.relationship-progress-panel,
-.relationship-timeline-panel {
+.relationship-progress-panel {
   padding: 20px;
 }
 
-.relationship-progress-panel .panel-heading svg,
-.relationship-timeline-panel .panel-heading svg {
+.relationship-progress-panel .panel-heading svg {
   color: var(--romance-primary);
 }
 
@@ -451,50 +441,6 @@ button {
 .relationship-progress-labels span {
   color: var(--muted);
   text-align: right;
-}
-
-.relationship-timeline {
-  display: grid;
-  gap: 12px;
-}
-
-.relationship-timeline-item {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
-.relationship-timeline-item > span {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(219, 39, 119, 0.18);
-  border-radius: 8px;
-  background: var(--romance-soft);
-  color: var(--romance-primary);
-}
-
-.relationship-timeline-item div {
-  min-width: 0;
-  padding: 10px 0 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.relationship-timeline-item:last-child div {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.relationship-timeline-item strong {
-  color: var(--romance-ink);
-  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.relationship-timeline-item p {
-  margin: 4px 0 0;
-  color: var(--muted);
 }
 
 @keyframes heartbeat {
@@ -1235,13 +1181,12 @@ select:focus-visible {
   }
 
   .relationship-story-panel,
-  .relationship-progress-panel,
-  .relationship-timeline-panel {
+  .relationship-progress-panel {
     padding: 18px;
   }
 
   .relationship-title-block h2 {
-    font-size: 58px;
+    font-size: 46px;
   }
 
   .relationship-story-list,
@@ -1313,7 +1258,7 @@ select:focus-visible {
   }
 
   .relationship-title-block h2 {
-    font-size: 50px;
+    font-size: 38px;
   }
 
   .relationship-big-counter strong {

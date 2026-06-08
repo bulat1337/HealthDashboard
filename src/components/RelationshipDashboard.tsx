@@ -3,11 +3,8 @@ import {
   CalendarDays,
   CalendarHeart,
   Camera,
-  Flower2,
   Heart,
   HeartHandshake,
-  Milestone,
-  NotebookTabs,
   Sparkles,
   Timer
 } from "lucide-react";
@@ -23,7 +20,7 @@ type RelationshipTile = {
   value: string;
   detail: string;
   icon: LucideIcon;
-  tone: "rose" | "gold" | "blue" | "green";
+  tone: "rose" | "gold" | "blue";
 };
 
 function parseLocalDate(value: string | undefined, fallback: string) {
@@ -131,13 +128,6 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
       detail: russianDayLabel(daysToAnniversary),
       icon: CalendarDays,
       tone: "blue"
-    },
-    {
-      label: "Фото",
-      value: formatLongDate(PHOTO_DATE),
-      detail: RELATIONSHIP_PHOTO_CAPTION,
-      icon: Camera,
-      tone: "green"
     }
   ];
 
@@ -198,7 +188,7 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
         })}
       </section>
 
-      <section className="relationship-bottom-grid">
+      <section className="relationship-bottom-grid" aria-label="Год отношений">
         <article className="panel relationship-progress-panel">
           <div className="panel-heading compact">
             <div>
@@ -219,46 +209,6 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
               <span>
                 {daysToAnniversary} {russianDayLabel(daysToAnniversary)} до годовщины
               </span>
-            </div>
-          </div>
-        </article>
-
-        <article className="panel relationship-timeline-panel">
-          <div className="panel-heading compact">
-            <div>
-              <h2>Опорные даты</h2>
-              <span>личная временная шкала</span>
-            </div>
-            <NotebookTabs size={22} />
-          </div>
-
-          <div className="relationship-timeline">
-            <div className="relationship-timeline-item">
-              <span>
-                <Milestone size={18} />
-              </span>
-              <div>
-                <strong>{formatLongDate(RELATIONSHIP_START)}</strong>
-                <p>начало отношений</p>
-              </div>
-            </div>
-            <div className="relationship-timeline-item">
-              <span>
-                <Flower2 size={18} />
-              </span>
-              <div>
-                <strong>{formatLongDate(PHOTO_DATE)}</strong>
-                <p>{RELATIONSHIP_PHOTO_CAPTION}</p>
-              </div>
-            </div>
-            <div className="relationship-timeline-item">
-              <span>
-                <CalendarHeart size={18} />
-              </span>
-              <div>
-                <strong>{formatLongDate(nextDate)}</strong>
-                <p>следующая годовщина</p>
-              </div>
             </div>
           </div>
         </article>
