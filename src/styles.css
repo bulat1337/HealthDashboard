@@ -132,8 +132,16 @@ button {
 .brand span,
 .panel-heading span,
 .stats-list dt,
+.latest-metrics-list dt,
 .metric-tile small {
   color: var(--muted);
+}
+
+.metric-tile small {
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .status-strip {
@@ -778,7 +786,8 @@ select:focus-visible {
 }
 
 .chart-panel,
-.analysis-panel {
+.analysis-panel,
+.latest-measurement-panel {
   padding: 20px;
 }
 
@@ -972,6 +981,24 @@ select:focus-visible {
   font-weight: 700;
 }
 
+.latest-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(30, 64, 175, 0.14);
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.latest-count-badge strong {
+  color: var(--ink-blue);
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  line-height: 1;
+}
+
 .stats-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -979,7 +1006,15 @@ select:focus-visible {
   margin: 0;
 }
 
-.stats-list div {
+.latest-metrics-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.stats-list div,
+.latest-metrics-list div {
   min-width: 0;
   padding: 10px;
   border: 1px solid var(--line);
@@ -987,16 +1022,27 @@ select:focus-visible {
   background: #fbfdff;
 }
 
-.stats-list dt {
+.stats-list dt,
+.latest-metrics-list dt {
   margin-bottom: 4px;
   font-size: 12px;
 }
 
-.stats-list dd {
+.stats-list dd,
+.latest-metrics-list dd {
   margin: 0;
   color: var(--ink);
   font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.empty-latest-measurement {
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: #fbfdff;
+  color: var(--muted);
 }
 
 .money-grid {
@@ -1410,7 +1456,8 @@ select:focus-visible {
     text-align: left;
   }
 
-  .stats-list {
+  .stats-list,
+  .latest-metrics-list {
     grid-template-columns: 1fr;
   }
 

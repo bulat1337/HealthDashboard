@@ -68,6 +68,7 @@ Supported configuration:
 | `MONEY_SYNC_ENABLED` | Enables server-side scheduled ZenMoney sync. Production default: enabled unless set to `false`. |
 | `MONEY_SYNC_START_HOUR` / `MONEY_SYNC_END_HOUR` / `MONEY_SYNC_FINAL_MINUTE` | Server-side money sync window. Defaults: `08:00` through `23:30`. |
 | `HEALTH_INGEST_TOKEN` | Enables authenticated POST ingest for scale measurements. |
+| `HEALTH_INGEST_DEFAULT_USER` | Optional fallback user for scale payloads without Xiaomi `profile_id`; single-user data files are inferred automatically. |
 | `HOST` / `PORT` | Express bind host and port. Defaults: `127.0.0.1:5000`. |
 | `VITE_RELATIONSHIP_*` | Local-only relationship title, start date, photo date, caption, and photo URL. |
 

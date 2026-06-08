@@ -35,6 +35,7 @@ class BridgeConfig:
     ingest_url: str
     ingest_token: str
     address: str | None = None
+    default_user: str | None = None
     min_repeat_seconds: float = 21600.0
     settle_seconds: float = 6.0
     pending_ttl_seconds: float = 90.0
@@ -78,6 +79,7 @@ def load_config() -> BridgeConfig:
         ).strip(),
         ingest_token=env_required("HEALTH_INGEST_TOKEN"),
         address=os.environ.get("XIAOMI_SCALE_ADDRESS", "").strip().upper() or None,
+        default_user=os.environ.get("XIAOMI_SCALE_DEFAULT_USER", "").strip() or None,
         min_repeat_seconds=float(os.environ.get("XIAOMI_SCALE_MIN_REPEAT_SECONDS", "21600")),
         settle_seconds=float(os.environ.get("XIAOMI_SCALE_SETTLE_SECONDS", "6")),
         pending_ttl_seconds=float(os.environ.get("XIAOMI_SCALE_PENDING_TTL_SECONDS", "90")),
@@ -113,6 +115,8 @@ def sensor_update_payload(sensor_update: Any, config: BridgeConfig) -> dict[str,
         user = config.user_map.get(str(profile_id))
         if user:
             payload["user"] = user
+    elif config.default_user:
+        payload["user"] = config.default_user
 
     return payload
 
@@ -131,7 +135,7 @@ def post_payload(config: BridgeConfig, payload: dict[str, Any]) -> None:
 
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            print(response.read().decode("utf-8"))
+            print(response.read().decode("utf-8"), flush=True)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"POST failed: HTTP {exc.code} {detail}", flush=True)
@@ -159,6 +163,8 @@ class XiaomiS400Bridge:
             user = self.config.user_map.get(str(profile_id))
             if user:
                 pending.payload["user"] = user
+        elif self.config.default_user and pending.payload.get("user") is None:
+            pending.payload["user"] = self.config.default_user
 
         return pending
 
@@ -180,7 +186,6 @@ class XiaomiS400Bridge:
             payload.get("weight") is not None
             and payload.get("impedance") is not None
             and payload.get("impedanceLow") is not None
-            and (payload.get("profile_id") is not None or payload.get("user") is not None)
         )
 
     def should_send(self, payload: dict[str, Any]) -> bool:
@@ -189,12 +194,7 @@ class XiaomiS400Bridge:
         low_impedance = payload.get("impedanceLow")
         profile_id = payload.get("profile_id")
         user = payload.get("user")
-        if (
-            weight is None
-            or impedance is None
-            or low_impedance is None
-            or (profile_id is None and user is None)
-        ):
+        if weight is None or impedance is None or low_impedance is None:
             return False
 
         try:
@@ -204,7 +204,7 @@ class XiaomiS400Bridge:
         except (TypeError, ValueError):
             return False
 
-        person_key = str(profile_id if profile_id is not None else user)
+        person_key = str(profile_id if profile_id is not None else user or "unknown")
         key = f"{person_key}:{rounded_weight}:{rounded_impedance}:{rounded_low_impedance}"
         now = time.monotonic()
         last = self.last_sent.get(key, 0)
