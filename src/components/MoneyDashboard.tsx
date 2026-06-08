@@ -55,6 +55,14 @@ function formatMoneyDelta(value: number | null | undefined) {
   return `${sign}${formatNumber(value, 0)} ₽`;
 }
 
+function formatMoneyPeriodLabel(firstDateIso: string | null | undefined, lastDateIso: string | null | undefined) {
+  const firstDate = formatDateShort(firstDateIso);
+  const lastDate = formatDateShort(lastDateIso);
+  if (firstDate === "—" || lastDate === "—") return "за период";
+  if (firstDate === lastDate) return `за ${lastDate}`;
+  return `с ${firstDate} по ${lastDate}`;
+}
+
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return `${formatNumber(value * 100, 1)}%`;
@@ -192,6 +200,7 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
   const latestRows = money.records.slice(-6).reverse();
   const preSync = money.sync.preSync;
+  const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
 
   return (
     <>
@@ -230,14 +239,12 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
           <div className="panel-heading">
             <div>
               <h2>Денежная динамика</h2>
-              <span>
-                {money.summary.recordCount} срезов · {formatDateShort(money.summary.firstDateIso)} -{" "}
-                {formatDateShort(money.summary.lastDateIso)}
-              </span>
             </div>
             <div className="headline-value">
               <strong>{formatMoney(latest.totalAmount)}</strong>
-              <span>{formatMoneyDelta(money.summary.totalChange)} за период</span>
+              <span>
+                {formatMoneyDelta(money.summary.totalChange)} {moneyPeriodLabel}
+              </span>
             </div>
           </div>
 
@@ -360,14 +367,6 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
             <div>
               <dt>Аренда</dt>
               <dd>{formatMoney(money.rentMonthly)}</dd>
-            </div>
-            <div>
-              <dt>Деньги партнера</dt>
-              <dd>{formatMoney(money.partnerMoney)}</dd>
-            </div>
-            <div>
-              <dt>Долг партнера</dt>
-              <dd>{formatMoney(money.partnerCreditCardDebt)}</dd>
             </div>
           </dl>
         </aside>
