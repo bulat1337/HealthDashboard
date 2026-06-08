@@ -45,12 +45,14 @@ type IngestOptions = {
 
 export type IngestResult = {
   duplicate: boolean;
+  updated: boolean;
   measurement: RawMeasurement;
   measurementCount: number;
   dataFile: string;
 };
 
 const DEFAULT_TIMEZONE = process.env.HEALTH_DEFAULT_TIMEZONE || "UTC";
+const DEFAULT_INGEST_USER = process.env.HEALTH_INGEST_DEFAULT_USER?.trim() || "";
 const DUPLICATE_WINDOW_SECONDS = 15 * 60;
 const ESTIMATE_SOURCE_MIN_METRICS = 12;
 
@@ -133,7 +135,10 @@ const KNOWN_RAW_FIELDS = [
   "model",
   "device_model",
   "device_id",
-  "serial_number"
+  "serial_number",
+  "source_app",
+  "xiaomi_home_full_report",
+  "allow_close_duplicate"
 ];
 
 export class IngestError extends Error {
@@ -216,9 +221,20 @@ function resolveUserName(payload: Record<string, unknown>, raw: RawData): string
     if (user?.name) return user.name;
   }
 
+  if (DEFAULT_INGEST_USER) {
+    const user = (raw.users ?? []).find((candidate) => candidate.name === DEFAULT_INGEST_USER);
+    if (user?.name) return user.name;
+    throw new IngestError(400, "HEALTH_INGEST_DEFAULT_USER must match an existing user");
+  }
+
+  const namedUsers = (raw.users ?? []).filter((user): user is RawUser & { name: string } => {
+    return typeof user.name === "string" && user.name.trim().length > 0;
+  });
+  if (namedUsers.length === 1) return namedUsers[0].name;
+
   throw new IngestError(
     400,
-    "Measurement payload must include user/user_name or profile_id matching an existing user"
+    "Measurement payload must include user/user_name, profile_id matching an existing user, or configure HEALTH_INGEST_DEFAULT_USER"
   );
 }
 
@@ -267,12 +283,24 @@ function roundMetric(key: string, value: number) {
   return round(value, metricDigits(key));
 }
 
+function derivedMetricKeys(measurement: RawMeasurement) {
+  const keys = measurement.source?.derived_metric_keys;
+  return Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string") : [];
+}
+
+function hasDerivedMetrics(measurement: RawMeasurement) {
+  return (
+    typeof measurement.source?.derived_metrics_method === "string" ||
+    derivedMetricKeys(measurement).length > 0
+  );
+}
+
 function hasFullReport(measurement: RawMeasurement) {
   const metricCount = Object.keys(measurement.metrics ?? {}).length;
   return (
     metricCount >= ESTIMATE_SOURCE_MIN_METRICS &&
-    measurement.source?.app === "Xiaomi Home" &&
-    measurement.raw_xiaomi_fields?.bfp !== undefined
+    !hasDerivedMetrics(measurement) &&
+    (measurement.source?.app === "Xiaomi Home" || measurement.raw_xiaomi_fields?.bfp !== undefined)
   );
 }
 
@@ -512,7 +540,7 @@ function buildMeasurement(payload: Record<string, unknown>, raw: RawData, now: D
     user_type_code: profileId ?? user?.type_code,
     account_id: user?.account_id,
     source: {
-      app: "Health Dashboard ingest",
+      app: stringValue(payload, ["source_app"]) ?? "Health Dashboard ingest",
       api_endpoint: "/api/health-data/measurements",
       model: stringValue(payload, ["device_model", "model"]) ?? raw.source?.device_model,
       device_id: stringValue(payload, ["device_id"]) ?? raw.source?.device_id,
@@ -546,7 +574,105 @@ function isDuplicate(existing: RawMeasurement, incoming: RawMeasurement) {
   const existingWeight = measurementWeight(existing);
   const incomingWeight = measurementWeight(incoming);
   if (existingWeight === null || incomingWeight === null) return false;
-  return Math.abs(existingWeight - incomingWeight) <= 0.05;
+  if (Math.abs(existingWeight - incomingWeight) > 0.05) return false;
+
+  const allowCloseDuplicate =
+    incoming.raw_xiaomi_fields?.xiaomi_home_full_report === true ||
+    incoming.raw_xiaomi_fields?.allow_close_duplicate === true;
+  if (allowCloseDuplicate) {
+    const existingMinute = existing.measured_at_minute ?? existing.measured_at?.slice(0, 16);
+    const incomingMinute = incoming.measured_at_minute ?? incoming.measured_at?.slice(0, 16);
+    return existingMinute === incomingMinute;
+  }
+
+  return true;
+}
+
+function valuesDiffer(left: unknown, right: unknown) {
+  return JSON.stringify(left) !== JSON.stringify(right);
+}
+
+function mergeRicherDuplicate(existing: RawMeasurement, incoming: RawMeasurement) {
+  let changed = false;
+  const existingMetrics = (existing.metrics ??= {});
+  const incomingMetrics = incoming.metrics ?? {};
+  const existingDerivedKeys = new Set(derivedMetricKeys(existing));
+  const incomingDerivedKeys = new Set(derivedMetricKeys(incoming));
+  const existingHasDerivedMetrics = hasDerivedMetrics(existing);
+  const replacedDerivedKeys = new Set<string>();
+  const addedDerivedKeys = new Set<string>();
+
+  for (const [key, value] of Object.entries(incomingMetrics)) {
+    const existingValue = existingMetrics[key];
+    const shouldUseIncoming =
+      existingValue === undefined ||
+      existingDerivedKeys.has(key) ||
+      (existingHasDerivedMetrics && !incomingDerivedKeys.has(key));
+    if (!shouldUseIncoming) continue;
+
+    if (valuesDiffer(existingValue, value)) {
+      existingMetrics[key] = value;
+      changed = true;
+    }
+    if (existingDerivedKeys.has(key) && !incomingDerivedKeys.has(key)) {
+      replacedDerivedKeys.add(key);
+    }
+    if (existingValue === undefined && incomingDerivedKeys.has(key)) {
+      addedDerivedKeys.add(key);
+    }
+  }
+
+  if (
+    (existing.heart_rate_bpm === undefined || existing.heart_rate_bpm === null) &&
+    incoming.heart_rate_bpm !== undefined &&
+    incoming.heart_rate_bpm !== null
+  ) {
+    existing.heart_rate_bpm = incoming.heart_rate_bpm;
+    changed = true;
+  }
+  if (
+    (existing.heart_rate_raw === undefined || existing.heart_rate_raw === null) &&
+    incoming.heart_rate_raw !== undefined &&
+    incoming.heart_rate_raw !== null
+  ) {
+    existing.heart_rate_raw = incoming.heart_rate_raw;
+    changed = true;
+  }
+
+  const existingRawFields = (existing.raw_xiaomi_fields ??= {});
+  for (const [key, value] of Object.entries(incoming.raw_xiaomi_fields ?? {})) {
+    if (existingRawFields[key] !== undefined) continue;
+    existingRawFields[key] = value;
+    changed = true;
+  }
+
+  if (changed) {
+    const nextDerivedKeys = new Set(
+      [...existingDerivedKeys].filter((key) => !replacedDerivedKeys.has(key))
+    );
+    for (const key of addedDerivedKeys) nextDerivedKeys.add(key);
+
+    existing.source = {
+      ...(existing.source ?? {}),
+      duplicate_enriched_at: incoming.source?.ingested_at
+    };
+    if (typeof incoming.source?.app === "string") {
+      existing.source.app = incoming.source.app;
+    }
+
+    if (nextDerivedKeys.size > 0) {
+      existing.source.derived_metrics_method =
+        existing.source.derived_metrics_method ??
+        incoming.source?.derived_metrics_method ??
+        "weighted nearest Xiaomi Home full reports";
+      existing.source.derived_metric_keys = [...nextDerivedKeys].sort();
+    } else {
+      delete existing.source.derived_metrics_method;
+      delete existing.source.derived_metric_keys;
+    }
+  }
+
+  return changed;
 }
 
 function normalizeMeasurements(measurements: RawMeasurement[]) {
@@ -689,8 +815,18 @@ export function ingestScaleMeasurement(payload: unknown, options: IngestOptions)
 
   const duplicate = measurements.find((existing) => isDuplicate(existing, measurement));
   if (duplicate) {
+    const updated = mergeRicherDuplicate(duplicate, measurement);
+    if (updated) {
+      normalizeMeasurements(measurements);
+      updateSourceMetadata(raw, now);
+      atomicWrite(options.dataFile, `${JSON.stringify(raw, null, 2)}\n`);
+      writeWideCsv(path.join(options.dataDir, "xiaomi-body-scale-measurements.csv"), raw);
+      writeLongCsv(path.join(options.dataDir, "xiaomi-body-scale-measurements-long.csv"), raw);
+    }
+
     return {
       duplicate: true,
+      updated,
       measurement: duplicate,
       measurementCount: measurements.length,
       dataFile: options.dataFile
@@ -708,6 +844,7 @@ export function ingestScaleMeasurement(payload: unknown, options: IngestOptions)
 
   return {
     duplicate: false,
+    updated: true,
     measurement,
     measurementCount: raw.measurements.length,
     dataFile: options.dataFile

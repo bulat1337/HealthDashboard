@@ -2,11 +2,11 @@ import {
   Activity,
   CircleAlert,
   Dumbbell,
+  Flame,
   HeartHandshake,
   HeartPulse,
   RefreshCw,
   Scale,
-  ShieldCheck,
   SlidersHorizontal,
   Users,
   Wallet,
@@ -27,7 +27,7 @@ import {
   latestMetricValue,
   recordsForUser
 } from "./stats";
-import type { DashboardData, MetricCatalogEntry } from "./types";
+import type { DashboardData, MetricCatalogEntry, NormalizedMeasurement } from "./types";
 
 type Domain = "health" | "money" | "relationships";
 
@@ -35,9 +35,9 @@ const QUICK_METRICS = [
   "weight_kg",
   "body_fat_percent",
   "muscle_mass_kg",
-  "body_water_percent",
-  "body_score",
-  "heart_rate_bpm"
+  "visceral_fat_rating",
+  "heart_rate_bpm",
+  "body_water_percent"
 ];
 
 const METRIC_ICONS: Record<string, typeof Scale> = {
@@ -45,9 +45,31 @@ const METRIC_ICONS: Record<string, typeof Scale> = {
   body_fat_percent: Activity,
   muscle_mass_kg: Dumbbell,
   body_water_percent: Waves,
-  body_score: ShieldCheck,
+  visceral_fat_rating: Flame,
   heart_rate_bpm: HeartPulse
 };
+
+const METRIC_LABEL_OVERRIDES: Record<string, string> = {
+  basal_metabolic_rate_kcal: "Базовый обмен",
+  estimated_waist_to_hip_ratio: "Индекс талия/бедра",
+  body_type_code: "Тип телосложения",
+  bioimpedance_resistance_raw: "Сопротивление тела",
+  bioimpedance_resistance_2_raw: "Сопротивление тела, низкая частота"
+};
+
+const BODY_TYPE_LABELS: Record<number, string> = {
+  1: "Скрытое ожирение",
+  2: "Ожирение",
+  3: "Плотное телосложение",
+  4: "Недостаток мышц",
+  5: "Стандартное",
+  6: "Стандартное мускулистое",
+  7: "Худощавое",
+  8: "Худощавое мускулистое",
+  9: "Очень мускулистое"
+};
+
+const DAY_SECONDS = 86400;
 
 function statusText(connected: boolean, lastEventAt: string | null) {
   if (connected && lastEventAt) return `Live, ${formatDateTime(lastEventAt)}`;
@@ -55,8 +77,119 @@ function statusText(connected: boolean, lastEventAt: string | null) {
   return "Offline";
 }
 
+function isAbortError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error) {
+    return error.name === "AbortError" || error.message.toLowerCase().includes("aborted");
+  }
+  return false;
+}
+
 function metricByKey(metrics: MetricCatalogEntry[], key: string) {
   return metrics.find((metric) => metric.key === key) ?? metrics[0];
+}
+
+function displayMetricLabel(metric: MetricCatalogEntry | null | undefined) {
+  if (!metric) return "";
+  return METRIC_LABEL_OVERRIDES[metric.key] ?? metric.label;
+}
+
+function displayMetricUnit(metric: MetricCatalogEntry | null | undefined) {
+  if (!metric) return "";
+  if (metric.key.startsWith("bioimpedance_resistance")) return "Ω";
+  if (!metric.unit) return "";
+  if (metric.key === "body_score" && metric.unit === "points") return "баллов";
+  if (metric.key === "body_age_years" && metric.unit === "years") return "лет";
+  if (metric.key === "basal_metabolic_rate_kcal" && metric.unit.toLowerCase() === "kcal") {
+    return "ккал";
+  }
+  if (metric.key === "bmi" && metric.unit === "kg/m^2") return "кг/м²";
+  if (metric.key === "visceral_fat_rating" && metric.unit === "rating") return "";
+  if (metric.key === "estimated_waist_to_hip_ratio" && metric.unit === "ratio") return "";
+  return metric.unit;
+}
+
+function displayMetricValue(metric: MetricCatalogEntry, value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+
+  if (metric.key === "body_type_code") {
+    const code = Math.round(value);
+    if (code <= 0) return "Не определено";
+    return BODY_TYPE_LABELS[code] ?? `Тип ${code}`;
+  }
+
+  const unit = displayMetricUnit(metric);
+  const formattedValue = formatNumber(value, fractionDigitsForMetric(metric));
+  return unit ? `${formattedValue} ${unit}` : formattedValue;
+}
+
+function pluralRu(value: number, forms: [string, string, string]) {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return forms[0];
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1];
+  return forms[2];
+}
+
+function formatPeriodLabel(records: NormalizedMeasurement[]) {
+  if (records.length < 2) return "";
+
+  const first = records[0];
+  const last = records[records.length - 1];
+  const spanDays = Math.max(
+    1,
+    Math.round((last.measuredAtUnixSeconds - first.measuredAtUnixSeconds) / DAY_SECONDS)
+  );
+
+  if (spanDays >= 330) {
+    const years = Math.max(1, Math.round(spanDays / 365));
+    return years === 1 ? "за год" : `за ${years} ${pluralRu(years, ["год", "года", "лет"])}`;
+  }
+
+  if (spanDays >= 25) {
+    const months = Math.max(1, Math.round(spanDays / 30));
+    return months === 1
+      ? "за месяц"
+      : `за ${months} ${pluralRu(months, ["месяц", "месяца", "месяцев"])}`;
+  }
+
+  return `за ${spanDays} ${pluralRu(spanDays, ["день", "дня", "дней"])}`;
+}
+
+function formatMetricChange(records: NormalizedMeasurement[], metricKey: string) {
+  const change = changeBetweenEdges(records, metricKey);
+  const period = formatPeriodLabel(records);
+  return period ? `${formatSigned(change, 2)} ${period}` : formatSigned(change, 2);
+}
+
+function fractionDigitsForMetric(metric: MetricCatalogEntry) {
+  const precision = metric.precision;
+  if (!Number.isFinite(precision) || precision <= 0) return 1;
+  if (precision >= 1) return 0;
+
+  let digits = 0;
+  while (
+    digits < 4 &&
+    Math.abs(Math.round(precision * 10 ** digits) - precision * 10 ** digits) > 0.000001
+  ) {
+    digits += 1;
+  }
+  return digits;
+}
+
+function latestMeasurementForUser(measurements: NormalizedMeasurement[], user: string) {
+  return measurements.reduce<NormalizedMeasurement | null>((latest, measurement) => {
+    if (measurement.user !== user) return latest;
+    if (!latest) return measurement;
+    if (measurement.measuredAtUnixSeconds > latest.measuredAtUnixSeconds) return measurement;
+    if (
+      measurement.measuredAtUnixSeconds === latest.measuredAtUnixSeconds &&
+      measurement.rowId > latest.rowId
+    ) {
+      return measurement;
+    }
+    return latest;
+  }, null);
 }
 
 function App() {
@@ -101,8 +234,13 @@ function App() {
     const controller = new AbortController();
     setIsLoading(true);
     load(controller.signal)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : String(loadError)))
-      .finally(() => setIsLoading(false));
+      .catch((loadError) => {
+        if (controller.signal.aborted || isAbortError(loadError)) return;
+        setError(loadError instanceof Error ? loadError.message : String(loadError));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
     return () => controller.abort();
   }, []);
 
@@ -166,9 +304,25 @@ function App() {
 
   const quickMetrics = useMemo(() => {
     if (!data) return [];
-    const keys = new Set(QUICK_METRICS);
-    return data.metrics.filter((metric) => keys.has(metric.key));
+    return QUICK_METRICS.map((key) => data.metrics.find((metric) => metric.key === key)).filter(
+      (metric): metric is MetricCatalogEntry => Boolean(metric)
+    );
   }, [data]);
+
+  const latestMeasurement = useMemo(() => {
+    if (!data || !selectedUser) return null;
+    return latestMeasurementForUser(data.measurements, selectedUser);
+  }, [data, selectedUser]);
+
+  const latestMetricRows = useMemo(() => {
+    if (!data || !latestMeasurement) return [];
+    return data.metrics
+      .filter((metric) => Number.isFinite(latestMeasurement.metrics[metric.key]))
+      .map((metric) => ({
+        metric,
+        value: latestMeasurement.metrics[metric.key]
+      }));
+  }, [data, latestMeasurement]);
 
   if (isLoading) {
     return (
@@ -193,7 +347,6 @@ function App() {
 
   const latestValue = latestMetricValue(metricRecords, selectedMetric);
   const totalChange = changeBetweenEdges(metricRecords, selectedMetric);
-  const metricUnit = selectedMetricInfo?.unit ?? "";
 
   return (
     <main className="app">
@@ -204,7 +357,6 @@ function App() {
           </div>
           <div>
             <h1>Life Dashboard</h1>
-            <span>Здоровье, деньги и отношения · {data.source.deviceName ?? "Xiaomi Body Scale"}</span>
           </div>
         </div>
 
@@ -286,7 +438,8 @@ function App() {
           <select value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value)}>
             {data.metrics.map((metric) => (
               <option key={metric.key} value={metric.key}>
-                {metric.label} {metric.unit ? `, ${metric.unit}` : ""}
+                {displayMetricLabel(metric)}
+                {displayMetricUnit(metric) ? `, ${displayMetricUnit(metric)}` : ""}
               </option>
             ))}
           </select>
@@ -298,8 +451,8 @@ function App() {
           const Icon = METRIC_ICONS[metric.key] ?? Activity;
           const records = recordsForUser(data.measurements, selectedUser, metric.key);
           const value = latestMetricValue(records, metric.key);
-          const change = changeBetweenEdges(records, metric.key);
           const isActive = selectedMetric === metric.key;
+          const unit = displayMetricUnit(metric);
           return (
             <button
               className={`metric-tile ${isActive ? "active" : ""}`}
@@ -308,11 +461,12 @@ function App() {
               onClick={() => setSelectedMetric(metric.key)}
             >
               <Icon size={20} />
-              <span className="tile-label">{metric.label}</span>
+              <span className="tile-label">{displayMetricLabel(metric)}</span>
               <strong>
-                {formatNumber(value, 1)} {metric.unit}
+                {formatNumber(value, 1)}
+                {unit ? ` ${unit}` : ""}
               </strong>
-              <small>{formatSigned(change, 2)}</small>
+              <small>{formatMetricChange(records, metric.key)}</small>
             </button>
           );
         })}
@@ -322,16 +476,14 @@ function App() {
         <article className="panel chart-panel">
           <div className="panel-heading">
             <div>
-              <h2>{selectedMetricInfo.label}</h2>
+              <h2>{displayMetricLabel(selectedMetricInfo)}</h2>
               <span>
                 {metricRecords.length} измерений · {formatDateShort(selectedStats?.firstMeasuredAt)} -{" "}
                 {formatDateShort(selectedStats?.lastMeasuredAt)}
               </span>
             </div>
             <div className="headline-value">
-              <strong>
-                {formatNumber(latestValue, 2)} {metricUnit}
-              </strong>
+              <strong>{selectedMetricInfo ? displayMetricValue(selectedMetricInfo, latestValue) : "—"}</strong>
               <span>{formatSigned(totalChange, 2)} за период</span>
             </div>
           </div>
@@ -354,70 +506,32 @@ function App() {
           </div>
         </article>
 
-        <aside className="panel analysis-panel">
+        <aside className="panel latest-measurement-panel">
           <div className="panel-heading compact">
             <div>
-              <h2>Качество</h2>
-              <span>{selectedUser}</span>
+              <h2>Последнее измерение</h2>
+              <span>
+                {selectedUser} · {formatDateTime(latestMeasurement?.measuredAt)}
+              </span>
             </div>
-            <div className="score-ring" style={{ "--score": selectedStats?.reliabilityScore ?? 0 } as React.CSSProperties}>
-              <strong>{selectedStats?.reliabilityScore ?? 0}</strong>
+            <div className="latest-count-badge" aria-label="Количество показателей">
+              <Activity size={18} />
+              <strong>{latestMetricRows.length}</strong>
             </div>
           </div>
 
-          <div className="quality-badge">
-            <ShieldCheck size={18} />
-            <span>{selectedStats?.reliabilityLabel ?? "—"}</span>
-          </div>
-
-          <dl className="stats-list">
-            <div>
-              <dt>Среднее</dt>
-              <dd>
-                {formatNumber(selectedStats?.mean, 2)} {metricUnit}
-              </dd>
-            </div>
-            <div>
-              <dt>Медиана</dt>
-              <dd>
-                {formatNumber(selectedStats?.median, 2)} {metricUnit}
-              </dd>
-            </div>
-            <div>
-              <dt>SD</dt>
-              <dd>{formatNumber(selectedStats?.sd, 3)}</dd>
-            </div>
-            <div>
-              <dt>CI среднего</dt>
-              <dd>±{formatNumber(selectedStats?.meanCi95, 3)}</dd>
-            </div>
-            <div>
-              <dt>Тренд/день</dt>
-              <dd>
-                {formatSigned(selectedStats?.slopePerDay, 4)} {metricUnit}
-              </dd>
-            </div>
-            <div>
-              <dt>R²</dt>
-              <dd>{formatNumber(selectedStats?.r2, 3)}</dd>
-            </div>
-            <div>
-              <dt>Выбросы</dt>
-              <dd>{selectedStats?.outlierCount ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Статус ≠ 0</dt>
-              <dd>{selectedStats?.nonZeroStatusCount ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Шаг данных</dt>
-              <dd>{formatNumber(selectedStats?.precision, 4)}</dd>
-            </div>
-            <div>
-              <dt>Интервал</dt>
-              <dd>{formatNumber(selectedStats?.cadenceDays, 1)} д</dd>
-            </div>
-          </dl>
+          {latestMetricRows.length > 0 ? (
+            <dl className="latest-metrics-list">
+              {latestMetricRows.map(({ metric, value }) => (
+                <div key={metric.key}>
+                  <dt>{displayMetricLabel(metric)}</dt>
+                  <dd>{displayMetricValue(metric, value)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div className="empty-latest-measurement">Нет показателей в последнем измерении.</div>
+          )}
         </aside>
       </section>
         </>

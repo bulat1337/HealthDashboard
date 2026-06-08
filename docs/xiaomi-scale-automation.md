@@ -55,7 +55,7 @@ curl -X POST "http://127.0.0.1:5000/api/health-data/measurements" \
 
 ### Текущий deployed-вариант: Standalone BLE Bridge
 
-На локальном Linux-хосте работает user systemd service `xiaomi-scale-bridge.service`. Bridge слушает BLE-рекламы S400, расшифровывает MiBeacon V5 через `XIAOMI_SCALE_BINDKEY`, накапливает BLE-фрагменты по адресу весов и ждет `weight`, `impedance`, `impedanceLow` и `profile_id`, затем выдерживает короткое окно для `heartRate` и отправляет один payload в dashboard.
+На локальном Linux-хосте работает user systemd service `xiaomi-scale-bridge.service`. Bridge слушает BLE-рекламы S400, расшифровывает MiBeacon V5 через `XIAOMI_SCALE_BINDKEY`, накапливает BLE-фрагменты по адресу весов и ждет `weight`, `impedance` и `impedanceLow`, затем выдерживает короткое окно для `profile_id` и `heartRate` и отправляет один payload в dashboard.
 
 Основные файлы:
 
@@ -106,6 +106,7 @@ export XIAOMI_SCALE_BINDKEY="32-hex-chars"
 export HEALTH_INGEST_TOKEN="same-token-as-dashboard"
 export HEALTH_DASHBOARD_INGEST_URL="http://127.0.0.1:5000/api/health-data/measurements"
 export XIAOMI_SCALE_ADDRESS="8C:D0:B2:F6:BE:EF"
+export XIAOMI_SCALE_DEFAULT_USER="Demo User"
 export XIAOMI_SCALE_SETTLE_SECONDS=6
 export XIAOMI_SCALE_PENDING_TTL_SECONDS=90
 
@@ -117,6 +118,8 @@ python scripts/xiaomi-s400-ble-bridge.py
 ```bash
 export XIAOMI_SCALE_USER_MAP='{"1":"Demo User","2":"Partner"}'
 ```
+
+Если BLE payload приходит без `profile_id`, bridge использует `XIAOMI_SCALE_DEFAULT_USER`, когда переменная задана. Сервер также сам выбирает пользователя, когда в `xiaomi-body-scale-data.json` есть ровно один пользователь. Для нескольких пользователей без стабильного `profile_id` задайте `XIAOMI_SCALE_DEFAULT_USER` на bridge или `HEALTH_INGEST_DEFAULT_USER` на сервере.
 
 ### Альтернатива: Home Assistant Xiaomi BLE
 

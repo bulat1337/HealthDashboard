@@ -30,7 +30,7 @@ if [ ! -s "$TOKEN_FILE" ]; then
   exit 2
 fi
 
-python3 -m venv "$VENV_DIR"
+python3 -m venv --clear "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/python" -m pip install -r "$APP_DIR/requirements-scale-bridge.txt"
 
@@ -44,6 +44,7 @@ HEALTH_INGEST_TOKEN=$(cat "$TOKEN_FILE")
 HEALTH_DASHBOARD_INGEST_URL=http://127.0.0.1:5000/api/health-data/measurements
 XIAOMI_SCALE_BINDKEY=
 XIAOMI_SCALE_ADDRESS=
+XIAOMI_SCALE_DEFAULT_USER=
 XIAOMI_SCALE_MIN_REPEAT_SECONDS=21600
 XIAOMI_SCALE_SETTLE_SECONDS=6
 XIAOMI_SCALE_PENDING_TTL_SECONDS=90

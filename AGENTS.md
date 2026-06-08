@@ -18,6 +18,8 @@ This repository is a React/Vite life dashboard for personal domains such as heal
 
 The backend is an Express server in `server/index.ts`; it serves the React app, exposes `/api/health-data` and `/api/status`, receives optional scale measurements through `/api/health-data/measurements`, and broadcasts data updates through `/ws`.
 
+Money automation is handled server-side. `server/index.ts` runs `scripts/zenmoney-money-sync.mjs` on VaioServer, updates `Money.md`, refreshes the dashboard cache, and broadcasts WebSocket updates. Runtime tokens and config live outside the repo under `~/.codex/state/health-dashboard-money-sync/` or deployment-specific state paths.
+
 Default runtime settings:
 
 - Port: `5000`
@@ -36,6 +38,8 @@ npm install
 npm run dev
 npm run build
 npm run start
+npm run money:zenmoney:dry-run
+npm run money:zenmoney:write
 ```
 
 `npm run dev` and `npm run start` run `server/index.ts`. `npm run build` runs TypeScript checks and Vite production build.
@@ -57,6 +61,17 @@ For a custom money source:
 ```bash
 MONEY_DATA_FILE="/path/to/Money.md" npm run dev
 ```
+
+For ZenMoney-backed money updates:
+
+```bash
+npm run money:zenmoney:init
+npm run money:zenmoney:accounts
+npm run money:zenmoney:dry-run
+npm run money:zenmoney:write
+```
+
+In production, the Express server schedules money sync from 08:00 through 23:30 when `MONEY_SYNC_ENABLED` is not `false`. Manual refresh is exposed through `POST /api/money-data/refresh` and the existing dashboard refresh button on the money tab.
 
 ## Xiaomi Scale Automation
 
@@ -87,7 +102,7 @@ The bridge should log:
 Listening for Xiaomi S400 BLE advertisements...
 ```
 
-The bridge sends a payload after `weight`, `impedance`, and `impedanceLow` are present. It includes `heartRate` and `profile_id` when the BLE update exposes them. It suppresses the same `(profile_id, weight, impedance, impedanceLow)` fingerprint for `21600` seconds.
+The bridge sends a payload after `weight`, `impedance`, and `impedanceLow` are present. It includes `heartRate` and `profile_id` when the BLE update exposes them. It suppresses the same `(person key, weight, impedance, impedanceLow)` fingerprint for `21600` seconds; the person key is `profile_id`, mapped user, configured default user, or `unknown`.
 
 `server/health-ingest.ts` treats repeated measurements for the same user and weight within 15 minutes as duplicates. If a BLE payload lacks Xiaomi Home full-report fields, the server fills the missing body composition metrics from the user's previous Xiaomi Home full reports using weighted nearest historical reports. These derived fields are marked in source metadata with:
 

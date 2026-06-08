@@ -310,16 +310,17 @@ const METRIC_LABELS: Record<string, string> = {
   protein_percent: "Белок, %",
   skeletal_muscle_mass_kg: "Скелетные мышцы",
   visceral_fat_rating: "Висцеральный жир",
-  basal_metabolic_rate_kcal: "BMR",
-  estimated_waist_to_hip_ratio: "WHR",
+  basal_metabolic_rate_kcal: "Базовый обмен",
+  estimated_waist_to_hip_ratio: "Индекс талия/бедра",
   body_age_years: "Возраст тела",
   fat_free_body_weight_kg: "Безжировая масса",
   standard_weight_kg: "Стандартный вес",
   weight_control_kg: "Контроль веса",
   fat_control_raw: "Контроль жира",
   muscle_control_kg: "Контроль мышц",
-  bioimpedance_resistance_raw: "Сопротивление 1",
-  bioimpedance_resistance_2_raw: "Сопротивление 2"
+  body_type_code: "Тип телосложения",
+  bioimpedance_resistance_raw: "Сопротивление тела",
+  bioimpedance_resistance_2_raw: "Сопротивление тела, низкая частота"
 };
 
 const METRIC_CATEGORIES: Record<string, string> = {
@@ -346,6 +347,7 @@ const METRIC_CATEGORIES: Record<string, string> = {
   body_age_years: "Оценки",
   body_score: "Оценки",
   estimated_waist_to_hip_ratio: "Оценки",
+  body_type_code: "Оценки",
   bioimpedance_resistance_raw: "Сырой сигнал",
   bioimpedance_resistance_2_raw: "Сырой сигнал"
 };
@@ -1476,7 +1478,7 @@ app.post("/api/health-data/measurements", (request, response) => {
       dataFile: DATA_FILE
     });
 
-    if (!result.duplicate) {
+    if (result.updated) {
       refreshCache();
       broadcast({
         type: "health-data-updated",
@@ -1489,6 +1491,7 @@ app.post("/api/health-data/measurements", (request, response) => {
 
     response.status(result.duplicate ? 200 : 201).json({
       duplicate: result.duplicate,
+      updated: result.updated,
       measurementCount: result.measurementCount,
       rowId: result.measurement.row_id,
       user: result.measurement.user,

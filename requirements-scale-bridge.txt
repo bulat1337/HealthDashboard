@@ -1,3 +1,6 @@
-bleak>=0.22,<1
-home-assistant-bluetooth>=1.13
+bleak==0.22.3
+bleak-retry-connector==3.10.0
+bluetooth-adapters==1.0.0
+habluetooth==3.49.0
+home-assistant-bluetooth==1.13.1
 xiaomi-ble==1.11.0
