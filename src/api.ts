@@ -1,4 +1,4 @@
-import type { HealthDataResponse } from "./types";
+import type { HealthDataResponse, SportActivityKey, SportDataResponse } from "./types";
 
 export async function fetchHealthData(signal?: AbortSignal): Promise<HealthDataResponse> {
   const response = await fetch("/api/health-data", { signal });
@@ -19,6 +19,34 @@ export async function refreshMoneyData(signal?: AbortSignal) {
     throw new Error(text || `HTTP ${response.status}`);
   }
   return response.json() as Promise<unknown>;
+}
+
+export async function fetchSportData(signal?: AbortSignal): Promise<SportDataResponse> {
+  const response = await fetch("/api/sport-data", { signal });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<SportDataResponse>;
+}
+
+export async function updateSportDay(
+  input: { userId: string; date: string; activities: SportActivityKey[] },
+  signal?: AbortSignal
+) {
+  const response = await fetch("/api/sport-data/day", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input),
+    signal
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<{ ok: true; updatedAt: string; data: SportDataResponse["data"] }>;
 }
 
 export async function updatePartnerMoneyData(

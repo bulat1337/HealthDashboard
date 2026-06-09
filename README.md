@@ -10,6 +10,7 @@ Personal life dashboard for health, money, relationships, and other long-running
 - Reads a local `Money.md` file and turns finance notes into a dashboard view.
 - Updates the money note from ZenMoney accounts through a local sync script.
 - Shows a configurable relationship counter with local-only title, dates, and image settings.
+- Tracks sport activities for Булат and Диана with calendar marks and streaks.
 - Accepts protected scale measurements through `POST /api/health-data/measurements`.
 - Runs as one local Express server that serves the Vite React app and API.
 
@@ -60,6 +61,7 @@ Supported configuration:
 | `HEALTH_DATA_DIR` | Directory with Xiaomi Body Scale JSON/CSV/Markdown exports. |
 | `HEALTH_DATA_FILE` | Optional direct path to `xiaomi-body-scale-data.json`. |
 | `MONEY_DATA_FILE` | Markdown file used by the money dashboard. |
+| `SPORT_DATA_FILE` | JSON file used by the sport calendar. Defaults to `./data/sport/sport-tracker.json`. |
 | `MONEY_PARTNER_LABEL` | Optional local label for partner-specific money notes. |
 | `ZENMONEY_TOKEN_FILE` | Optional local ZenMoney OAuth token JSON path. |
 | `ZENMONEY_CLIENT_ID` | Optional ZenMoney OAuth client id. |
@@ -101,7 +103,7 @@ server/index.ts                    Express API, static app server, WebSocket
 server/health-ingest.ts            Scale payload normalization and data writes
 scripts/xiaomi-s400-ble-bridge.py  Xiaomi S400 BLE listener
 src/App.tsx                        Main React dashboard shell
-src/components/                    Health, money, and relationship panels
+src/components/                    Health, money, relationship, and sport panels
 src/styles.css                     Global dashboard styling
 docs/assets/                       Public README images
 ```

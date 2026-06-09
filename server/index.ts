@@ -53,6 +53,8 @@ const DATA_FILE =
   process.env.HEALTH_DATA_FILE || path.join(DATA_DIR, "xiaomi-body-scale-data.json");
 const DEFAULT_MONEY_FILE = path.join(rootDir, "data", "money", "Money.md");
 const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
+const DEFAULT_SPORT_FILE = path.join(rootDir, "data", "sport", "sport-tracker.json");
+const SPORT_FILE = process.env.SPORT_DATA_FILE || DEFAULT_SPORT_FILE;
 const LOCAL_ASSETS_DIR = path.join(rootDir, "data", "assets");
 const MONEY_PARTNER_LABEL = process.env.MONEY_PARTNER_LABEL?.trim() || "партнера";
 const PORT = Number(process.env.PORT || 5000);
@@ -94,7 +96,7 @@ function publicPath(filePath: string) {
 
 function errorText(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error);
-  return [DATA_FILE, DATA_DIR, MONEY_FILE]
+  return [DATA_FILE, DATA_DIR, MONEY_FILE, SPORT_FILE]
     .sort((a, b) => b.length - a.length)
     .reduce((message, filePath) => message.replaceAll(filePath, publicPath(filePath)), raw);
 }
@@ -292,6 +294,56 @@ type MoneyData = {
   upcomingEvents: MoneyEvent[];
   summary: MoneySummary;
 };
+
+type SportActivityKey = "run" | "pilates" | "strength";
+
+type SportActivityCatalogEntry = {
+  key: SportActivityKey;
+  label: string;
+  color: string;
+};
+
+type SportEntry = {
+  date: string;
+  activities: SportActivityKey[];
+};
+
+type SportUser = {
+  id: string;
+  name: string;
+  activityTypes: SportActivityKey[];
+  entries: SportEntry[];
+};
+
+type SportData = {
+  schemaVersion: number;
+  generatedAt: string;
+  sourceFile: string;
+  sourceMtimeMs: number | null;
+  activityCatalog: SportActivityCatalogEntry[];
+  users: SportUser[];
+};
+
+type SportDayUpdate = {
+  userId: string;
+  date: string;
+  activities: SportActivityKey[];
+};
+
+const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
+  { key: "run", label: "Бег", color: "#2563eb" },
+  { key: "pilates", label: "Пилатес", color: "#db2777" },
+  { key: "strength", label: "Силовая", color: "#f59e0b" }
+];
+
+const SPORT_USERS: Omit<SportUser, "entries">[] = [
+  { id: "bulat", name: "Булат", activityTypes: ["strength", "run", "pilates"] },
+  { id: "diana", name: "Диана", activityTypes: ["run", "pilates"] }
+];
+
+const SPORT_ACTIVITY_KEYS = new Set<SportActivityKey>(
+  SPORT_ACTIVITY_CATALOG.map((activity) => activity.key)
+);
 
 const METRIC_LABELS: Record<string, string> = {
   weight_kg: "Вес",
@@ -670,6 +722,139 @@ function loadMoneyData(): MoneyData {
   } catch (error) {
     return emptyMoneyData("error", stat, errorText(error));
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+function isSportActivity(value: unknown): value is SportActivityKey {
+  return typeof value === "string" && SPORT_ACTIVITY_KEYS.has(value as SportActivityKey);
+}
+
+function normalizeSportActivities(raw: unknown, allowedActivities: SportActivityKey[]) {
+  if (!Array.isArray(raw)) return [];
+
+  const allowed = new Set(allowedActivities);
+  const activities: SportActivityKey[] = [];
+  for (const item of raw) {
+    if (!isSportActivity(item) || !allowed.has(item) || activities.includes(item)) continue;
+    activities.push(item);
+  }
+  return activities;
+}
+
+function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivityKey[]) {
+  if (!isPlainObject(rawUser) || !isPlainObject(rawUser.entries)) return [];
+
+  return Object.entries(rawUser.entries)
+    .map(([date, rawActivities]) => ({
+      date,
+      activities: normalizeSportActivities(rawActivities, allowedActivities)
+    }))
+    .filter((entry): entry is SportEntry => isDateKey(entry.date) && entry.activities.length > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function loadSportRawFile() {
+  if (!fs.existsSync(SPORT_FILE)) return { schemaVersion: 1, users: {} };
+  return JSON.parse(fs.readFileSync(SPORT_FILE, "utf8")) as unknown;
+}
+
+function loadSportData(): SportData {
+  const stat = fs.existsSync(SPORT_FILE) ? fs.statSync(SPORT_FILE) : null;
+  const raw = loadSportRawFile();
+  const rawUsers = isPlainObject(raw) && isPlainObject(raw.users) ? raw.users : {};
+  const rawSchemaVersion =
+    isPlainObject(raw) && typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1;
+
+  return {
+    schemaVersion: rawSchemaVersion,
+    generatedAt: new Date().toISOString(),
+    sourceFile: publicPath(SPORT_FILE),
+    sourceMtimeMs: stat?.mtimeMs ?? null,
+    activityCatalog: SPORT_ACTIVITY_CATALOG,
+    users: SPORT_USERS.map((user) => ({
+      ...user,
+      entries: normalizeSportEntries(rawUsers[user.id], user.activityTypes)
+    }))
+  };
+}
+
+function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
+  if (!isPlainObject(body)) {
+    throw new Error("Тело запроса должно быть JSON-объектом.");
+  }
+
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  const user = SPORT_USERS.find((candidate) => candidate.id === userId);
+  if (!user) {
+    throw new Error("Укажите пользователя: bulat или diana.");
+  }
+
+  if (!isDateKey(body.date)) {
+    throw new Error("Дата должна быть в формате YYYY-MM-DD.");
+  }
+
+  if (!Array.isArray(body.activities)) {
+    throw new Error("activities должен быть массивом.");
+  }
+
+  const allowed = new Set(user.activityTypes);
+  const activities: SportActivityKey[] = [];
+  for (const activity of body.activities) {
+    if (!isSportActivity(activity) || !allowed.has(activity)) {
+      throw new Error(`Тип спорта недоступен для ${user.name}.`);
+    }
+    if (!activities.includes(activity)) activities.push(activity);
+  }
+
+  return {
+    userId: user.id,
+    date: body.date,
+    activities
+  };
+}
+
+function writeSportDay(update: SportDayUpdate) {
+  const raw = loadSportRawFile();
+  const rawObject = isPlainObject(raw) ? raw : {};
+  const users = isPlainObject(rawObject.users) ? { ...rawObject.users } : {};
+  const existingUserRecord = users[update.userId];
+  const userRecord = isPlainObject(existingUserRecord) ? { ...existingUserRecord } : {};
+  const entries = isPlainObject(userRecord.entries) ? { ...userRecord.entries } : {};
+
+  if (update.activities.length > 0) {
+    entries[update.date] = update.activities;
+  } else {
+    delete entries[update.date];
+  }
+
+  users[update.userId] = {
+    ...userRecord,
+    entries
+  };
+
+  const nextRaw = {
+    ...rawObject,
+    schemaVersion: 1,
+    users
+  };
+
+  fs.mkdirSync(path.dirname(SPORT_FILE), { recursive: true });
+  fs.writeFileSync(SPORT_FILE, `${JSON.stringify(nextRaw, null, 2)}\n`, "utf8");
 }
 
 function measuredAtIso(measurement: RawMeasurement): string {
@@ -1442,7 +1627,7 @@ function scheduleNextMoneySync() {
 
 const app = express();
 const server = http.createServer(app);
-const sockets = new WebSocketServer({ server, path: "/ws" });
+const sockets = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "64kb" }));
 app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
@@ -1507,6 +1692,44 @@ app.post("/api/health-data/measurements", (request, response) => {
   }
 });
 
+app.get("/api/sport-data", (_request, response) => {
+  try {
+    response.json({ data: loadSportData() });
+  } catch (error) {
+    response.status(500).json({
+      error: errorText(error),
+      dataFile: publicPath(SPORT_FILE)
+    });
+  }
+});
+
+app.patch("/api/sport-data/day", (request, response) => {
+  try {
+    const update = sportDayUpdateFromBody(request.body);
+    writeSportDay(update);
+
+    const data = loadSportData();
+    const updatedAt = new Date().toISOString();
+    broadcast({
+      type: "sport-data-updated",
+      event: "day-update",
+      path: publicPath(SPORT_FILE),
+      updatedAt
+    });
+
+    response.json({
+      ok: true,
+      updatedAt,
+      data
+    });
+  } catch (error) {
+    response.status(400).json({
+      ok: false,
+      error: errorText(error)
+    });
+  }
+});
+
 app.post("/api/money-data/refresh", async (_request, response) => {
   try {
     const result = await runMoneySync("manual");
@@ -1567,6 +1790,8 @@ app.get("/api/status", (_request, response) => {
   const stat = exists ? fs.statSync(DATA_FILE) : null;
   const moneyExists = fs.existsSync(MONEY_FILE);
   const moneyStat = moneyExists ? fs.statSync(MONEY_FILE) : null;
+  const sportExists = fs.existsSync(SPORT_FILE);
+  const sportStat = sportExists ? fs.statSync(SPORT_FILE) : null;
   const money = cachedData?.money ?? loadMoneyData();
   response.json({
     ok: exists && lastLoadError === null,
@@ -1583,6 +1808,10 @@ app.get("/api/status", (_request, response) => {
         ...moneySyncState,
         preSync: publicMoneySyncState().preSync
       }
+    },
+    sport: {
+      sourceFile: publicPath(SPORT_FILE),
+      sourceMtimeMs: sportStat?.mtimeMs ?? null
     },
     lastLoadError
   });
@@ -1678,7 +1907,7 @@ async function configureFrontend() {
     appType: "custom",
     server: {
       middlewareMode: true,
-      hmr: { server }
+      hmr: { server, clientPort: PORT }
     }
   });
 
@@ -1697,6 +1926,15 @@ async function configureFrontend() {
 }
 
 await configureFrontend();
+
+server.on("upgrade", (request, socket, head) => {
+  const pathname = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`).pathname;
+  if (pathname !== "/ws") return;
+
+  sockets.handleUpgrade(request, socket, head, (webSocket) => {
+    sockets.emit("connection", webSocket, request);
+  });
+});
 
 server.listen(PORT, HOST, () => {
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;
