@@ -2,7 +2,23 @@
 
 Personal life dashboard for health, money, relationships, and other long-running life domains.
 
-![Life Dashboard preview](docs/assets/life-dashboard-preview.svg)
+## Screens
+
+### Health
+
+![Life Dashboard health screen](docs/assets/life-dashboard-health.jpg)
+
+### Money
+
+![Life Dashboard money screen](docs/assets/life-dashboard-money.jpg)
+
+### Relationships
+
+![Life Dashboard relationships screen](docs/assets/life-dashboard-relationships.jpg)
+
+### Sport
+
+![Life Dashboard sport screen](docs/assets/life-dashboard-sport.jpg)
 
 ## What It Does
 
@@ -19,13 +35,10 @@ Personal life dashboard for health, money, relationships, and other long-running
 This repository is safe for a public GitHub remote:
 
 - Real health exports, money files, `.env*` files, and `data/` are ignored by Git.
-- README images use demo values and generated SVG assets.
+- README screenshots are captured from the real dashboard UI with demo fixture data.
+- The relationship screenshot uses a public-domain [Wikimedia Commons photo](https://commons.wikimedia.org/wiki/File:Lovers_hands._(Unsplash).jpg) for demo content.
 - Personal names, local IP addresses, hostnames, and absolute home-directory paths are kept out of tracked files.
 - Secrets such as `HEALTH_INGEST_TOKEN` and `XIAOMI_SCALE_BINDKEY` belong in local env files or systemd environment files.
-
-## Screens
-
-![Data flow](docs/assets/health-ingest-flow.svg)
 
 ## Quick Start
 
