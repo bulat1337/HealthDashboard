@@ -53,6 +53,8 @@ type MoneyRecordForm = {
   rentPaid: RentPaidFormValue;
 };
 
+type MoneyRecordAmountField = Exclude<keyof MoneyRecordForm, "dateIso" | "rentPaid">;
+
 const MONEY_TILES: MoneyTile[] = [
   { key: "totalAmount", label: "Общая сумма", icon: Landmark, tone: "blue" },
   { key: "freeAmount", label: "Свободная", icon: Wallet, tone: "green" },
@@ -174,6 +176,60 @@ function parseRentPaidFormValue(value: RentPaidFormValue) {
   return null;
 }
 
+function parseRecordDraftAmount(value: string) {
+  const normalized = value
+    .replace(/₽/g, "")
+    .replace(/['’\s]/g, "")
+    .replace(",", ".");
+  if (!normalized || normalized === "-") return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function recordDraftAmount(form: MoneyRecordForm, field: MoneyRecordAmountField) {
+  return parseRecordDraftAmount(form[field]) ?? 0;
+}
+
+function formatRecordDraftAmount(value: number) {
+  return String(Math.round(value));
+}
+
+function unpaidRentFromForm(form: MoneyRecordForm, rentMonthly: number | null) {
+  return parseRentPaidFormValue(form.rentPaid) === false ? rentMonthly ?? 0 : 0;
+}
+
+function recalculateMoneyRecordForm(
+  form: MoneyRecordForm,
+  changedField: keyof MoneyRecordForm,
+  money: MoneyData
+) {
+  if (changedField === "dateIso") return form;
+
+  const freeAmount = recordDraftAmount(form, "freeAmount");
+  const investmentAmount = recordDraftAmount(form, "investmentAmount");
+  const reserveAmount = recordDraftAmount(form, "reserveAmount");
+  const creditCardDebt = recordDraftAmount(form, "creditCardDebt");
+  const partnerMoney = money.partnerMoney ?? 0;
+  const unpaidRent = unpaidRentFromForm(form, money.rentMonthly);
+
+  if (changedField === "freeAmount") {
+    return {
+      ...form,
+      totalAmount: formatRecordDraftAmount(
+        freeAmount + investmentAmount + reserveAmount + creditCardDebt + partnerMoney + unpaidRent
+      )
+    };
+  }
+
+  const totalAmount = recordDraftAmount(form, "totalAmount");
+  return {
+    ...form,
+    freeAmount: formatRecordDraftAmount(
+      totalAmount - investmentAmount - reserveAmount - creditCardDebt - partnerMoney - unpaidRent
+    )
+  };
+}
+
 function formChanged(current: MoneyRecordForm, original: MoneyRecordForm) {
   return (Object.keys(current) as (keyof MoneyRecordForm)[]).some((key) => current[key] !== original[key]);
 }
@@ -241,7 +297,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
   }
 
   function updateRecordField<Key extends keyof MoneyRecordForm>(field: Key, value: MoneyRecordForm[Key]) {
-    setRecordForm((current) => ({ ...current, [field]: value }));
+    setRecordForm((current) => recalculateMoneyRecordForm({ ...current, [field]: value }, field, money));
     setRecordSaveStatus("idle");
     setRecordSaveError(null);
   }
