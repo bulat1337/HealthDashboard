@@ -16,6 +16,12 @@ type HoverState = {
   x: number;
 };
 
+type MoneyTrendChartProps = {
+  records: MoneyRecord[];
+  selectedRecordId?: number | null;
+  onRecordSelect?: (record: MoneyRecord) => void;
+};
+
 const WIDTH = 920;
 const HEIGHT = 420;
 const MARGIN = { top: 18, right: 22, bottom: 42, left: 72 };
@@ -46,7 +52,7 @@ function moneyValue(record: MoneyRecord, key: MoneySeriesKey) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function MoneyTrendChart({ records }: { records: MoneyRecord[] }) {
+export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSelect }: MoneyTrendChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
 
@@ -131,6 +137,11 @@ export function MoneyTrendChart({ records }: { records: MoneyRecord[] }) {
     });
   }
 
+  const selectedRecord = selectedRecordId
+    ? chart.drawableRecords.find((record) => record.rowId === selectedRecordId) ?? null
+    : null;
+  const selectedX = selectedRecord ? chart.xScale(Date.parse(selectedRecord.dateIso)) : null;
+
   return (
     <div className="chart-shell money-chart-shell">
       <svg
@@ -192,19 +203,43 @@ export function MoneyTrendChart({ records }: { records: MoneyRecord[] }) {
           />
         ))}
 
+        {selectedX !== null && (
+          <line
+            x1={selectedX}
+            x2={selectedX}
+            y1={MARGIN.top}
+            y2={HEIGHT - MARGIN.bottom}
+            stroke="#1e40af"
+            strokeDasharray="5 5"
+            strokeWidth="1.5"
+          />
+        )}
+
         {chart.drawableRecords.map((record) =>
           MONEY_SERIES.map((series) => {
             const value = moneyValue(record, series.key);
             if (value === null) return null;
+            const isSelected = record.rowId === selectedRecordId;
             return (
               <circle
                 key={`${record.rowId}-${series.key}`}
+                className={`money-chart-point${isSelected ? " selected" : ""}`}
                 cx={chart.xScale(Date.parse(record.dateIso))}
                 cy={chart.yScale(value)}
-                r="3.6"
+                r={isSelected ? "5.2" : "3.6"}
                 fill="#ffffff"
                 stroke={series.color}
-                strokeWidth="2"
+                strokeWidth={isSelected ? "3" : "2"}
+                role={onRecordSelect ? "button" : undefined}
+                tabIndex={onRecordSelect ? 0 : undefined}
+                aria-label={`Перейти к срезу ${formatDateShort(record.dateIso)}, ${series.label}`}
+                onClick={() => onRecordSelect?.(record)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onRecordSelect?.(record);
+                  }
+                }}
               />
             );
           })

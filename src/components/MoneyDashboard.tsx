@@ -1,18 +1,22 @@
 import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Banknote,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   CreditCard,
   LineChart,
   Landmark,
+  Pencil,
   PiggyBank,
   Save,
   Smartphone,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
-import { updatePartnerMoneyData } from "../api";
+import { updateMoneyRecordData, updatePartnerMoneyData } from "../api";
 import { formatDateShort, formatDateTime, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
@@ -34,7 +38,19 @@ type CompositionSegment = {
 
 type MoneyDashboardProps = {
   money: MoneyData;
-  onPartnerMoneyUpdated?: () => Promise<void> | void;
+  onMoneyDataUpdated?: () => Promise<void> | void;
+};
+
+type RentPaidFormValue = "unknown" | "yes" | "no";
+
+type MoneyRecordForm = {
+  dateIso: string;
+  totalAmount: string;
+  freeAmount: string;
+  investmentAmount: string;
+  reserveAmount: string;
+  creditCardDebt: string;
+  rentPaid: RentPaidFormValue;
 };
 
 const MONEY_TILES: MoneyTile[] = [
@@ -125,13 +141,63 @@ function parseMoneyInput(value: string, label: string) {
   return Math.round(parsed);
 }
 
-export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardProps) {
+function rentPaidFormValue(value: boolean | null | undefined): RentPaidFormValue {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "unknown";
+}
+
+function moneyRecordFormValue(record: MoneyRecord | null | undefined): MoneyRecordForm {
+  return {
+    dateIso: record?.dateIso ?? "",
+    totalAmount: inputValue(record?.totalAmount),
+    freeAmount: inputValue(record?.freeAmount),
+    investmentAmount: inputValue(record?.investmentAmount),
+    reserveAmount: inputValue(record?.reserveAmount),
+    creditCardDebt: inputValue(record?.creditCardDebt),
+    rentPaid: rentPaidFormValue(record?.rentPaid)
+  };
+}
+
+function parseOptionalMoneyInput(value: string, label: string) {
+  const normalized = value.replace(/['’\s]/g, "").replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
+  if (Math.abs(parsed) > 1_000_000_000_000) throw new Error(`${label}: значение слишком большое.`);
+  return Math.round(parsed);
+}
+
+function parseRentPaidFormValue(value: RentPaidFormValue) {
+  if (value === "yes") return true;
+  if (value === "no") return false;
+  return null;
+}
+
+function formChanged(current: MoneyRecordForm, original: MoneyRecordForm) {
+  return (Object.keys(current) as (keyof MoneyRecordForm)[]).some((key) => current[key] !== original[key]);
+}
+
+export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProps) {
+  const latest = money.latestRecord;
   const [partnerForm, setPartnerForm] = useState({
     partnerMoney: inputValue(money.partnerMoney),
     partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
   });
   const [partnerSaveStatus, setPartnerSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [partnerSaveError, setPartnerSaveError] = useState<string | null>(null);
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState<number | null>(latest?.rowId ?? null);
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [scrollTargetId, setScrollTargetId] = useState<number | null>(null);
+  const selectedRecordRef = useRef<HTMLTableRowElement | null>(null);
+  const selectedRecord = useMemo(() => {
+    if (selectedRecordId === null) return latest;
+    return money.records.find((record) => record.rowId === selectedRecordId) ?? latest;
+  }, [latest, money.records, selectedRecordId]);
+  const [recordForm, setRecordForm] = useState<MoneyRecordForm>(() => moneyRecordFormValue(selectedRecord));
+  const [recordSaveStatus, setRecordSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [recordSaveError, setRecordSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setPartnerForm({
@@ -140,10 +206,61 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
     });
   }, [money.partnerMoney, money.partnerCreditCardDebt]);
 
+  useEffect(() => {
+    setSelectedRecordId((current) => {
+      if (current !== null && money.records.some((record) => record.rowId === current)) return current;
+      return latest?.rowId ?? null;
+    });
+  }, [latest?.rowId, money.records]);
+
+  useEffect(() => {
+    setRecordForm(moneyRecordFormValue(selectedRecord));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
+  }, [
+    selectedRecord?.rowId,
+    selectedRecord?.dateIso,
+    selectedRecord?.totalAmount,
+    selectedRecord?.freeAmount,
+    selectedRecord?.investmentAmount,
+    selectedRecord?.reserveAmount,
+    selectedRecord?.creditCardDebt,
+    selectedRecord?.rentPaid
+  ]);
+
+  useEffect(() => {
+    if (scrollTargetId === null || selectedRecord?.rowId !== scrollTargetId) return;
+    selectedRecordRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setScrollTargetId(null);
+  }, [scrollTargetId, selectedRecord?.rowId, showAllRecords]);
+
   function updatePartnerField(field: keyof typeof partnerForm, value: string) {
     setPartnerForm((current) => ({ ...current, [field]: value }));
     setPartnerSaveStatus("idle");
     setPartnerSaveError(null);
+  }
+
+  function updateRecordField<Key extends keyof MoneyRecordForm>(field: Key, value: MoneyRecordForm[Key]) {
+    setRecordForm((current) => ({ ...current, [field]: value }));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
+  }
+
+  function selectMoneyRecord(record: MoneyRecord, options?: { revealAll?: boolean; scroll?: boolean }) {
+    setSelectedRecordId(record.rowId);
+    setEditingRecordId(null);
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
+    if (options?.revealAll) setShowAllRecords(true);
+    if (options?.scroll) setScrollTargetId(record.rowId);
+  }
+
+  function editMoneyRecord(record: MoneyRecord) {
+    setSelectedRecordId(record.rowId);
+    setEditingRecordId(record.rowId);
+    setRecordForm(moneyRecordFormValue(record));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
   }
 
   async function savePartnerValues(event: FormEvent<HTMLFormElement>) {
@@ -157,11 +274,35 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
         partnerCreditCardDebt: parseMoneyInput(partnerForm.partnerCreditCardDebt, "Долг партнера")
       };
       await updatePartnerMoneyData(nextValues);
-      await onPartnerMoneyUpdated?.();
+      await onMoneyDataUpdated?.();
       setPartnerSaveStatus("saved");
     } catch (error) {
       setPartnerSaveStatus("idle");
       setPartnerSaveError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function saveMoneyRecord(record: MoneyRecord) {
+    setRecordSaveStatus("saving");
+    setRecordSaveError(null);
+
+    try {
+      if (!recordForm.dateIso) throw new Error("Дата: укажите дату.");
+      await updateMoneyRecordData(record.rowId, {
+        dateIso: recordForm.dateIso,
+        totalAmount: parseOptionalMoneyInput(recordForm.totalAmount, "Общая сумма"),
+        freeAmount: parseOptionalMoneyInput(recordForm.freeAmount, "Свободная сумма"),
+        investmentAmount: parseOptionalMoneyInput(recordForm.investmentAmount, "Инвестиции"),
+        reserveAmount: parseOptionalMoneyInput(recordForm.reserveAmount, "Несгораемая сумма"),
+        creditCardDebt: parseOptionalMoneyInput(recordForm.creditCardDebt, "Долг по кредиткам"),
+        rentPaid: parseRentPaidFormValue(recordForm.rentPaid)
+      });
+      await onMoneyDataUpdated?.();
+      setEditingRecordId(null);
+      setRecordSaveStatus("saved");
+    } catch (error) {
+      setRecordSaveStatus("idle");
+      setRecordSaveError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -183,7 +324,6 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
     );
   }
 
-  const latest = money.latestRecord;
   if (!latest) {
     return (
       <section className="panel money-empty-panel">
@@ -196,9 +336,10 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
     );
   }
 
-  const compositionSegments = buildCompositionSegments(money, latest);
+  const activeRecord = selectedRecord ?? latest;
+  const visibleRows = showAllRecords ? [...money.records].reverse() : money.records.slice(-6).reverse();
+  const compositionSegments = buildCompositionSegments(money, activeRecord);
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
-  const latestRows = money.records.slice(-6).reverse();
   const preSync = money.sync.preSync;
   const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
 
@@ -248,7 +389,11 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
             </div>
           </div>
 
-          <MoneyTrendChart records={money.records} />
+          <MoneyTrendChart
+            records={money.records}
+            selectedRecordId={activeRecord.rowId}
+            onRecordSelect={(record) => selectMoneyRecord(record, { revealAll: true, scroll: true })}
+          />
 
           <div className="legend-row money-legend">
             {MONEY_SERIES.map((series) => (
@@ -263,16 +408,18 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
           <div className="panel-heading compact">
             <div>
               <h2>Срез</h2>
-              <span>{formatDateShort(latest.dateIso)}</span>
+              <span>
+                {formatDateShort(activeRecord.dateIso)} · строка #{activeRecord.rowId}
+              </span>
             </div>
             <div className="money-date-badge">
               <Banknote size={18} />
-              <strong>{formatMoney(latest.freeAmount)}</strong>
+              <strong>{formatMoney(activeRecord.freeAmount)}</strong>
             </div>
           </div>
 
           <div className="money-composition">
-            <div className="composition-track" aria-label="Распределение последнего среза">
+            <div className="composition-track" aria-label="Распределение выбранного среза">
               {compositionSegments.map((segment) => (
                 <span
                   key={segment.label}
@@ -405,17 +552,35 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
         <article className="panel money-history-panel">
           <div className="panel-heading compact">
             <div>
-              <h2>Последние срезы</h2>
+              <h2>{showAllRecords ? "Все срезы" : "Последние срезы"}</h2>
               <span>
-                Обновлено {formatDateTime(money.sourceMtimeMs ? new Date(money.sourceMtimeMs).toISOString() : null)}
+                Показано {visibleRows.length} из {money.records.length} · обновлено{" "}
+                {formatDateTime(money.sourceMtimeMs ? new Date(money.sourceMtimeMs).toISOString() : null)}
               </span>
             </div>
+            <button
+              className="money-secondary-button"
+              type="button"
+              onClick={() => {
+                if (showAllRecords) {
+                  setEditingRecordId(null);
+                  setRecordSaveStatus("idle");
+                  setRecordSaveError(null);
+                }
+                setShowAllRecords((current) => !current);
+              }}
+              aria-expanded={showAllRecords}
+            >
+              {showAllRecords ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              <span>{showAllRecords ? "Свернуть" : "Все срезы"}</span>
+            </button>
           </div>
 
           <div className="money-table-wrap">
             <table className="money-table">
               <thead>
                 <tr>
+                  <th>Действия</th>
                   <th>Дата</th>
                   <th>Общая</th>
                   <th>Свободная</th>
@@ -426,20 +591,210 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
                 </tr>
               </thead>
               <tbody>
-                {latestRows.map((record) => (
-                  <tr key={record.rowId}>
-                    <td>{record.date}</td>
-                    <td>{formatMoney(record.totalAmount)}</td>
-                    <td>{formatMoney(record.freeAmount)}</td>
-                    <td>{formatMoney(record.investmentAmount)}</td>
-                    <td>{formatMoney(record.reserveAmount)}</td>
-                    <td>{formatMoney(record.creditCardDebt)}</td>
-                    <td>{rentPaidLabel(record.rentPaid)}</td>
-                  </tr>
-                ))}
+                {visibleRows.map((record) => {
+                  const isSelected = record.rowId === activeRecord.rowId;
+                  const isEditing = record.rowId === editingRecordId;
+                  const rowFormChanged = isEditing && formChanged(recordForm, moneyRecordFormValue(record));
+                  const rowClassName = [isSelected ? "selected" : "", isEditing ? "editing" : ""]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <tr
+                      key={record.rowId}
+                      ref={isSelected ? selectedRecordRef : null}
+                      className={rowClassName || undefined}
+                      onClick={() => {
+                        if (!isEditing) selectMoneyRecord(record);
+                      }}
+                    >
+                      <td>
+                        <div className="money-table-actions">
+                          {isEditing ? (
+                            <>
+                              <button
+                                className="money-icon-action"
+                                type="button"
+                                title="Сбросить"
+                                aria-label={`Сбросить срез ${record.date}`}
+                                disabled={recordSaveStatus === "saving"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setRecordForm(moneyRecordFormValue(record));
+                                  setEditingRecordId(null);
+                                  setRecordSaveStatus("idle");
+                                  setRecordSaveError(null);
+                                }}
+                              >
+                                <X size={15} />
+                              </button>
+                              <button
+                                className="money-icon-action primary"
+                                type="button"
+                                title="Сохранить"
+                                aria-label={`Сохранить срез ${record.date}`}
+                                disabled={recordSaveStatus === "saving" || !rowFormChanged}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  saveMoneyRecord(record);
+                                }}
+                              >
+                                <Save size={15} />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="money-icon-action"
+                              type="button"
+                              title="Редактировать"
+                              aria-label={`Редактировать срез ${record.date}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                editMoneyRecord(record);
+                              }}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="date"
+                              value={recordForm.dateIso}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("dateIso", event.target.value)}
+                              aria-label={`Дата среза ${record.date}`}
+                            />
+                          </span>
+                        ) : (
+                          <button
+                            className="money-row-button"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectMoneyRecord(record);
+                            }}
+                          >
+                            <span>{record.date}</span>
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.totalAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("totalAmount", event.target.value)}
+                              aria-label={`Общая сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.totalAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.freeAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("freeAmount", event.target.value)}
+                              aria-label={`Свободная сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.freeAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.investmentAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("investmentAmount", event.target.value)}
+                              aria-label={`Инвестиции среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.investmentAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.reserveAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("reserveAmount", event.target.value)}
+                              aria-label={`Несгораемая сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.reserveAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.creditCardDebt}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("creditCardDebt", event.target.value)}
+                              aria-label={`Долг по кредиткам в срезе ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.creditCardDebt)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell money-table-select-shell">
+                            <select
+                              value={recordForm.rentPaid}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("rentPaid", event.target.value as RentPaidFormValue)}
+                              aria-label={`Аренда заплачена в срезе ${record.date}`}
+                            >
+                              <option value="unknown">—</option>
+                              <option value="yes">да</option>
+                              <option value="no">нет</option>
+                            </select>
+                          </span>
+                        ) : (
+                          rentPaidLabel(record.rentPaid)
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {recordSaveError || recordSaveStatus === "saved" ? (
+            <div className={`money-table-status ${recordSaveError ? "error" : ""}`} role="status">
+              {recordSaveError ?? "Срез сохранен"}
+            </div>
+          ) : null}
         </article>
       </section>
     </>

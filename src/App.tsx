@@ -430,7 +430,7 @@ function App() {
       </section>
 
       {activeDomain === "money" ? (
-        <MoneyDashboard money={data.money} onPartnerMoneyUpdated={() => load()} />
+        <MoneyDashboard money={data.money} onMoneyDataUpdated={() => load()} />
       ) : activeDomain === "relationships" ? (
         <RelationshipDashboard today={today} />
       ) : activeDomain === "sport" ? (

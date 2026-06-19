@@ -1,4 +1,4 @@
-import type { HealthDataResponse, SportActivityKey, SportDataResponse } from "./types";
+import type { HealthDataResponse, MoneyRecordUpdate, SportActivityKey, SportDataResponse } from "./types";
 
 export async function fetchHealthData(signal?: AbortSignal): Promise<HealthDataResponse> {
   const response = await fetch("/api/health-data", { signal });
@@ -54,6 +54,22 @@ export async function updatePartnerMoneyData(
   signal?: AbortSignal
 ) {
   const response = await fetch("/api/money-data/partner", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input),
+    signal
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  return response.json() as Promise<unknown>;
+}
+
+export async function updateMoneyRecordData(rowId: number, input: MoneyRecordUpdate, signal?: AbortSignal) {
+  const response = await fetch(`/api/money-data/records/${rowId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json"
