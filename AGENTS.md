@@ -102,7 +102,7 @@ The bridge should log:
 Listening for Xiaomi S400 BLE advertisements...
 ```
 
-The bridge sends a payload after `weight`, `impedance`, and `impedanceLow` are present. It includes `heartRate` and `profile_id` when the BLE update exposes them. It suppresses the same `(person key, weight, impedance, impedanceLow)` fingerprint for `21600` seconds; the person key is `profile_id`, mapped user, configured default user, or `unknown`.
+The bridge sends a payload after `weight`, `impedance`, and `impedanceLow` are present. It includes `heartRate` and `profile_id` when the BLE update exposes them. It suppresses the same `(person key, weight, impedance, impedanceLow)` fingerprint for `21600` seconds; the person key is `profile_id`, mapped user, configured default user, or `unknown`. The bridge also restarts its BLE scanner loop on `XIAOMI_SCALE_SCANNER_RESTART_SECONDS` intervals, default `900`, to recover from silent BlueZ/Bleak scanner stalls while the systemd process remains active.
 
 `server/health-ingest.ts` treats repeated measurements for the same user and weight within 15 minutes as duplicates. If a BLE payload lacks Xiaomi Home full-report fields, the server fills the missing body composition metrics from the user's previous Xiaomi Home full reports using weighted nearest historical reports. These derived fields are marked in source metadata with:
 

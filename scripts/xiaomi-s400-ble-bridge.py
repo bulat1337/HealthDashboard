@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -39,6 +41,14 @@ class BridgeConfig:
     min_repeat_seconds: float = 21600.0
     settle_seconds: float = 6.0
     pending_ttl_seconds: float = 90.0
+    scanner_restart_seconds: float = 900.0
+    scanner_restart_delay_seconds: float = 2.0
+    scanner_failure_delay_seconds: float = 15.0
+    scanner_failure_exit_threshold: int = 4
+    scanner_recovery_command: str | None = "bluetoothctl scan off"
+    scanner_recovery_timeout_seconds: float = 10.0
+    scanner_stop_timeout_seconds: float = 10.0
+    post_timeout_seconds: float = 10.0
     user_map: dict[str, str] = field(default_factory=dict)
 
 
@@ -54,6 +64,11 @@ def env_required(name: str) -> str:
     if not value:
         raise SystemExit(f"Missing required environment variable: {name}")
     return value
+
+
+def optional_command(name: str, default: str) -> str | None:
+    value = os.environ.get(name, default).strip()
+    return value or None
 
 
 def load_config() -> BridgeConfig:
@@ -83,6 +98,26 @@ def load_config() -> BridgeConfig:
         min_repeat_seconds=float(os.environ.get("XIAOMI_SCALE_MIN_REPEAT_SECONDS", "21600")),
         settle_seconds=float(os.environ.get("XIAOMI_SCALE_SETTLE_SECONDS", "6")),
         pending_ttl_seconds=float(os.environ.get("XIAOMI_SCALE_PENDING_TTL_SECONDS", "90")),
+        scanner_restart_seconds=float(os.environ.get("XIAOMI_SCALE_SCANNER_RESTART_SECONDS", "900")),
+        scanner_restart_delay_seconds=float(
+            os.environ.get("XIAOMI_SCALE_SCANNER_RESTART_DELAY_SECONDS", "2")
+        ),
+        scanner_failure_delay_seconds=float(
+            os.environ.get("XIAOMI_SCALE_SCANNER_FAILURE_DELAY_SECONDS", "15")
+        ),
+        scanner_failure_exit_threshold=int(
+            os.environ.get("XIAOMI_SCALE_SCANNER_FAILURE_EXIT_THRESHOLD", "4")
+        ),
+        scanner_recovery_command=optional_command(
+            "XIAOMI_SCALE_SCANNER_RECOVERY_COMMAND", "bluetoothctl scan off"
+        ),
+        scanner_recovery_timeout_seconds=float(
+            os.environ.get("XIAOMI_SCALE_SCANNER_RECOVERY_TIMEOUT_SECONDS", "10")
+        ),
+        scanner_stop_timeout_seconds=float(
+            os.environ.get("XIAOMI_SCALE_SCANNER_STOP_TIMEOUT_SECONDS", "10")
+        ),
+        post_timeout_seconds=float(os.environ.get("XIAOMI_SCALE_POST_TIMEOUT_SECONDS", "10")),
         user_map={str(key): str(value) for key, value in user_map.items()},
     )
 
@@ -134,13 +169,43 @@ def post_payload(config: BridgeConfig, payload: dict[str, Any]) -> None:
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=config.post_timeout_seconds) as response:
             print(response.read().decode("utf-8"), flush=True)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"POST failed: HTTP {exc.code} {detail}", flush=True)
     except urllib.error.URLError as exc:
         print(f"POST failed: {exc.reason}", flush=True)
+
+
+async def stop_scanner(scanner: BleakScanner, config: BridgeConfig) -> None:
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(scanner.stop(), timeout=config.scanner_stop_timeout_seconds)
+
+
+def run_scanner_recovery(config: BridgeConfig) -> None:
+    if config.scanner_recovery_command is None:
+        return
+
+    try:
+        result = subprocess.run(
+            config.scanner_recovery_command,
+            capture_output=True,
+            shell=True,
+            text=True,
+            timeout=config.scanner_recovery_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        print("BLE scanner recovery command timed out.", flush=True)
+        return
+    except Exception as exc:
+        print(f"BLE scanner recovery command failed: {exc}", flush=True)
+        return
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        suffix = f": {detail[:200]}" if detail else ""
+        print(f"BLE scanner recovery command exited {result.returncode}{suffix}", flush=True)
 
 
 class XiaomiS400Bridge:
@@ -223,7 +288,7 @@ class XiaomiS400Bridge:
             payload = dict(pending.payload)
             if self.should_send(payload):
                 print(json.dumps(payload, ensure_ascii=False), flush=True)
-                post_payload(self.config, payload)
+                await asyncio.to_thread(post_payload, self.config, payload)
             self.pending.pop(address, None)
         except asyncio.CancelledError:
             raise
@@ -256,18 +321,63 @@ class XiaomiS400Bridge:
             pending.send_task = asyncio.create_task(self.send_after_settle(device.address))
 
 
+async def run_scanner_once(bridge: XiaomiS400Bridge) -> None:
+    scanner = BleakScanner(bridge.on_advertisement)
+    started_at = time.monotonic()
+    started = False
+
+    print("Listening for Xiaomi S400 BLE advertisements...", flush=True)
+    try:
+        await scanner.start()
+        started = True
+    except Exception:
+        await stop_scanner(scanner, bridge.config)
+        await asyncio.to_thread(run_scanner_recovery, bridge.config)
+        raise
+
+    try:
+        while True:
+            restart_seconds = bridge.config.scanner_restart_seconds
+            await asyncio.sleep(60.0 if restart_seconds <= 0 else min(60.0, restart_seconds))
+            bridge.expire_pending()
+            elapsed = time.monotonic() - started_at
+            if restart_seconds > 0 and elapsed >= restart_seconds:
+                print(
+                    "Restarting Xiaomi S400 BLE scanner "
+                    f"after {round(elapsed)} seconds.",
+                    flush=True,
+                )
+                return
+    finally:
+        if started:
+            await stop_scanner(scanner, bridge.config)
+
+
 async def main() -> None:
     config = load_config()
     bridge = XiaomiS400Bridge(config)
-    scanner = BleakScanner(bridge.on_advertisement)
+    consecutive_failures = 0
 
-    print("Listening for Xiaomi S400 BLE advertisements...", flush=True)
-    await scanner.start()
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    finally:
-        await scanner.stop()
+    while True:
+        try:
+            await run_scanner_once(bridge)
+            consecutive_failures = 0
+        except Exception as exc:
+            consecutive_failures += 1
+            print(f"BLE scanner failed: {exc}", flush=True)
+
+            if (
+                config.scanner_failure_exit_threshold > 0
+                and consecutive_failures >= config.scanner_failure_exit_threshold
+            ):
+                raise SystemExit(
+                    "BLE scanner failed repeatedly; exiting for systemd restart."
+                ) from exc
+
+            await asyncio.sleep(config.scanner_failure_delay_seconds)
+            continue
+
+        await asyncio.sleep(config.scanner_restart_delay_seconds)
 
 
 if __name__ == "__main__":

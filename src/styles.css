@@ -1187,7 +1187,8 @@ select:focus-visible {
   margin-top: 14px;
 }
 
-.money-partner-form {
+.money-partner-form,
+.money-slice-form {
   display: grid;
   gap: 11px;
   margin-top: 14px;
@@ -1195,24 +1196,28 @@ select:focus-visible {
   border-top: 1px solid var(--line);
 }
 
-.money-partner-heading {
+.money-partner-heading,
+.money-slice-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
 }
 
-.money-partner-heading strong {
+.money-partner-heading strong,
+.money-slice-heading strong {
   color: var(--ink);
   font-size: 14px;
 }
 
-.money-partner-heading span {
+.money-partner-heading span,
+.money-slice-heading span {
   color: var(--muted);
   font-size: 12px;
 }
 
-.money-partner-fields {
+.money-partner-fields,
+.money-slice-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -1259,21 +1264,65 @@ select:focus-visible {
   font-size: 12px;
 }
 
-.money-partner-actions {
+.money-rent-toggle {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.money-rent-toggle legend {
+  padding: 0;
+}
+
+.money-rent-toggle div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.money-rent-toggle button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.money-rent-toggle button.active {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.money-partner-actions,
+.money-slice-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.money-partner-status {
+.money-partner-status,
+.money-slice-status {
   min-width: 0;
   color: var(--green);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.money-partner-status.error {
+.money-partner-status.error,
+.money-slice-status.error {
   color: #991b1b;
 }
 
@@ -1393,6 +1442,426 @@ select:focus-visible {
   border-bottom: 0;
 }
 
+.sport-page {
+  display: grid;
+  gap: 16px;
+}
+
+.sport-streak-card {
+  appearance: none;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  text-align: left;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+
+.sport-streak-panel {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 18px 42px rgba(245, 158, 11, 0.16);
+}
+
+.sport-streak-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sport-flame-circle {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: var(--amber);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
+}
+
+.sport-streak-card-top div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.sport-streak-card-top strong {
+  color: var(--ink-blue);
+  font-size: 18px;
+}
+
+.sport-streak-card-top span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sport-streak-value {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.sport-streak-value strong {
+  color: var(--ink-blue);
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(46px, 7vw, 72px);
+  line-height: 0.9;
+}
+
+.sport-streak-value span {
+  padding-bottom: 7px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.sport-streak-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.sport-streak-facts div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.sport-streak-facts dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sport-streak-facts dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.sport-control-band {
+  margin-bottom: 0;
+}
+
+.sport-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-soft);
+}
+
+.sport-month-nav strong {
+  min-width: 170px;
+  color: var(--ink-blue);
+  text-align: center;
+}
+
+.sport-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.78fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.sport-side-column {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.sport-calendar-panel,
+.sport-day-panel {
+  padding: 20px;
+}
+
+.sport-calendar-heading svg {
+  color: var(--primary);
+}
+
+.sport-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sport-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sport-legend i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+
+.sport-weekdays,
+.sport-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sport-weekdays {
+  margin-bottom: 8px;
+}
+
+.sport-weekdays span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sport-day-button {
+  position: relative;
+  min-width: 0;
+  min-height: 78px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.sport-day-button:hover {
+  border-color: var(--line-strong);
+  background: #fbfdff;
+}
+
+.sport-day-button.muted {
+  color: #94a3b8;
+  background: #f8fafc;
+}
+
+.sport-day-button.has-activity {
+  background: linear-gradient(180deg, #ffffff 0%, #f4f9ff 100%);
+}
+
+.sport-day-button.selected {
+  border-color: rgba(30, 64, 175, 0.58);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.sport-day-number {
+  width: 28px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.sport-day-button.today .sport-day-number {
+  background: var(--primary);
+  color: #fff;
+}
+
+.sport-day-activity-bars {
+  min-height: 18px;
+  display: flex;
+  align-items: end;
+  gap: 4px;
+}
+
+.sport-day-activity-bars i {
+  height: 7px;
+  min-width: 6px;
+  flex: 1 1 0;
+  border-radius: 999px;
+}
+
+.sport-day-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.sport-day-panel .panel-heading {
+  margin-bottom: 0;
+}
+
+.sport-day-panel .panel-heading > svg {
+  color: var(--green);
+}
+
+.sport-activity-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.sport-activity-actions button {
+  --activity-color: var(--primary);
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--activity-color);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.sport-activity-actions button:hover {
+  border-color: var(--line-strong);
+  background: #fbfdff;
+}
+
+.sport-activity-actions button.active {
+  border-color: var(--activity-color);
+  background: #fbfdff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+.sport-activity-actions button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.sport-activity-actions button svg:first-child {
+  color: var(--activity-color);
+}
+
+.sport-activity-actions button span {
+  min-width: 0;
+  font-weight: 700;
+}
+
+.sport-day-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sport-day-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.sport-day-summary strong {
+  color: var(--ink-blue);
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.sport-day-summary span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sport-clear-button,
+.sport-empty-day,
+.sport-last-workout {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.sport-clear-button {
+  justify-content: center;
+  border: 0;
+  background: #fff7f7;
+  color: #991b1b;
+  font-weight: 700;
+}
+
+.sport-clear-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.sport-empty-day {
+  border: 1px dashed var(--line-strong);
+  background: #fbfdff;
+  color: var(--muted);
+}
+
+.sport-last-workout {
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  background: #fbfdff;
+}
+
+.sport-last-workout span {
+  color: var(--muted);
+}
+
+.sport-last-workout strong {
+  color: var(--ink);
+  text-align: right;
+}
+
+.sport-empty-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  color: var(--muted);
+}
+
+.sport-empty-panel h2,
+.sport-empty-panel p {
+  margin: 0;
+}
+
+.sport-empty-panel h2 {
+  color: var(--ink-blue);
+}
+
+.sport-empty-panel svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
 @media (max-width: 1120px) {
   .quick-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1414,6 +1883,10 @@ select:focus-visible {
   }
 
   .main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sport-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1456,8 +1929,13 @@ select:focus-visible {
     justify-content: center;
     min-width: 0;
     gap: 5px;
-    padding: 0 6px;
-    font-size: 14px;
+    padding: 0 5px;
+    font-size: 13px;
+  }
+
+  .domain-control button span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .select-control select {
@@ -1517,17 +1995,50 @@ select:focus-visible {
   }
 
   .money-partner-heading,
-  .money-partner-actions {
+  .money-partner-actions,
+  .money-slice-heading,
+  .money-slice-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .money-partner-fields {
+  .money-partner-fields,
+  .money-slice-fields {
     grid-template-columns: 1fr;
   }
 
   .money-save-button {
     width: 100%;
+  }
+
+  .sport-control-band {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sport-month-nav {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .sport-month-nav strong {
+    min-width: 0;
+  }
+
+  .sport-calendar-panel,
+  .sport-day-panel,
+  .sport-streak-panel {
+    padding: 18px;
+  }
+
+  .sport-calendar-grid,
+  .sport-weekdays {
+    gap: 6px;
+  }
+
+  .sport-day-button {
+    min-height: 62px;
+    padding: 7px;
   }
 
   .chart-shell {
@@ -1579,6 +2090,38 @@ select:focus-visible {
 
   .relationship-big-counter strong {
     font-size: 42px;
+  }
+
+  .sport-calendar-grid,
+  .sport-weekdays {
+    gap: 5px;
+  }
+
+  .sport-day-button {
+    min-height: 56px;
+    gap: 5px;
+    padding: 6px;
+  }
+
+  .sport-day-number {
+    width: 24px;
+    height: 22px;
+    font-size: 13px;
+  }
+
+  .sport-day-activity-bars {
+    min-height: 13px;
+    gap: 3px;
+  }
+
+  .sport-day-activity-bars i {
+    height: 6px;
+    min-width: 4px;
+  }
+
+  .sport-day-summary,
+  .sport-streak-facts {
+    grid-template-columns: 1fr;
   }
 }
 

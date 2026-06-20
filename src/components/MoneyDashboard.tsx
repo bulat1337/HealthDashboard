@@ -12,7 +12,7 @@ import {
   Smartphone,
   Wallet
 } from "lucide-react";
-import { updatePartnerMoneyData } from "../api";
+import { updateMoneySliceData, type MoneySliceUpdateInput } from "../api";
 import { formatDateShort, formatDateTime, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
@@ -34,7 +34,27 @@ type CompositionSegment = {
 
 type MoneyDashboardProps = {
   money: MoneyData;
-  onPartnerMoneyUpdated?: () => Promise<void> | void;
+  onMoneyUpdated?: () => Promise<void> | void;
+};
+
+type MoneySliceAmountField =
+  | "totalAmount"
+  | "freeAmount"
+  | "investmentAmount"
+  | "reserveAmount"
+  | "creditCardDebt"
+  | "partnerMoney"
+  | "partnerCreditCardDebt";
+
+type MoneySliceEditableField = MoneySliceAmountField | "rentPaid";
+
+type MoneySliceForm = Record<MoneySliceAmountField, string> & {
+  rentPaid: "yes" | "no" | "";
+};
+
+type MoneySliceInput = {
+  key: MoneySliceAmountField;
+  label: string;
 };
 
 const MONEY_TILES: MoneyTile[] = [
@@ -43,6 +63,16 @@ const MONEY_TILES: MoneyTile[] = [
   { key: "investmentAmount", label: "Инвестиции", icon: LineChart, tone: "teal" },
   { key: "reserveAmount", label: "Несгораемая", icon: PiggyBank, tone: "amber" },
   { key: "creditCardDebt", label: "Кредитки", icon: CreditCard, tone: "red" }
+];
+
+const MONEY_SLICE_INPUTS: MoneySliceInput[] = [
+  { key: "totalAmount", label: "Общая" },
+  { key: "freeAmount", label: "Свободная" },
+  { key: "investmentAmount", label: "Инвестиции" },
+  { key: "reserveAmount", label: "Резерв" },
+  { key: "creditCardDebt", label: "Кредитки" },
+  { key: "partnerMoney", label: "Деньги партнера" },
+  { key: "partnerCreditCardDebt", label: "Долг партнера" }
 ];
 
 function formatMoney(value: number | null | undefined) {
@@ -116,58 +146,201 @@ function inputValue(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }
 
-function parseMoneyInput(value: string, label: string) {
-  const normalized = value.replace(/\s/g, "").replace(",", ".");
+function rentPaidInputValue(value: boolean | null | undefined): MoneySliceForm["rentPaid"] {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "";
+}
+
+function moneySliceFormFromData(money: MoneyData): MoneySliceForm {
+  const latest = money.latestRecord;
+  return {
+    totalAmount: inputValue(latest?.totalAmount),
+    freeAmount: inputValue(latest?.freeAmount),
+    investmentAmount: inputValue(latest?.investmentAmount),
+    reserveAmount: inputValue(latest?.reserveAmount),
+    creditCardDebt: inputValue(latest?.creditCardDebt),
+    partnerMoney: inputValue(money.partnerMoney),
+    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt),
+    rentPaid: rentPaidInputValue(latest?.rentPaid)
+  };
+}
+
+function parseDraftMoneyValue(value: string) {
+  const normalized = value
+    .replace(/₽/g, "")
+    .replace(/\s/g, "")
+    .replace(/'/g, "")
+    .replace(",", ".");
+  if (!normalized || normalized === "-") return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function formatDraftMoneyValue(value: number) {
+  return String(Math.round(value));
+}
+
+function isMoneySliceFieldVisible(field: MoneySliceAmountField, money: MoneyData, latest: MoneyRecord) {
+  if (field === "investmentAmount") return latest.investmentAmount !== null;
+  if (field === "reserveAmount") return latest.reserveAmount !== null;
+  if (field === "creditCardDebt") return latest.creditCardDebt !== null;
+  if (field === "partnerMoney") return money.partnerMoney !== null;
+  if (field === "partnerCreditCardDebt") return money.partnerCreditCardDebt !== null && latest.creditCardDebt !== null;
+  return true;
+}
+
+function formMoneyValue(
+  form: MoneySliceForm,
+  field: MoneySliceAmountField,
+  money: MoneyData,
+  latest: MoneyRecord
+) {
+  const parsed = parseDraftMoneyValue(form[field]);
+  if (parsed !== null) return parsed;
+  return isMoneySliceFieldVisible(field, money, latest) ? null : 0;
+}
+
+function rentPaidFromForm(form: MoneySliceForm) {
+  if (form.rentPaid === "yes") return true;
+  if (form.rentPaid === "no") return false;
+  return null;
+}
+
+function recalculateMoneySliceForm(
+  form: MoneySliceForm,
+  changedField: MoneySliceEditableField,
+  money: MoneyData
+): MoneySliceForm {
+  const latest = money.latestRecord;
+  if (!latest) return form;
+
+  const totalAmount = formMoneyValue(form, "totalAmount", money, latest);
+  const freeAmount = formMoneyValue(form, "freeAmount", money, latest);
+  const investmentAmount = formMoneyValue(form, "investmentAmount", money, latest);
+  const reserveAmount = formMoneyValue(form, "reserveAmount", money, latest);
+  const creditCardDebt = formMoneyValue(form, "creditCardDebt", money, latest);
+  const partnerMoney = formMoneyValue(form, "partnerMoney", money, latest);
+  const rentPaid = rentPaidFromForm(form);
+
+  if (
+    totalAmount === null ||
+    freeAmount === null ||
+    investmentAmount === null ||
+    reserveAmount === null ||
+    creditCardDebt === null ||
+    partnerMoney === null
+  ) {
+    return form;
+  }
+
+  const unpaidRent = rentPaid === false ? money.rentMonthly ?? 0 : 0;
+  const lockedAmount = reserveAmount + creditCardDebt + partnerMoney + unpaidRent;
+  if (changedField === "freeAmount" || changedField === "investmentAmount") {
+    return {
+      ...form,
+      totalAmount: formatDraftMoneyValue(freeAmount + investmentAmount + lockedAmount)
+    };
+  }
+
+  return {
+    ...form,
+    freeAmount: formatDraftMoneyValue(totalAmount - investmentAmount - lockedAmount)
+  };
+}
+
+function parseMoneyInput(value: string, label: string, options: { allowNegative?: boolean } = {}) {
+  const normalized = value
+    .replace(/₽/g, "")
+    .replace(/\s/g, "")
+    .replace(/'/g, "")
+    .replace(",", ".");
   if (!normalized) throw new Error(`${label}: укажите сумму.`);
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
-  if (parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
+  if (!options.allowNegative && parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
   return Math.round(parsed);
 }
 
-export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardProps) {
-  const [partnerForm, setPartnerForm] = useState({
-    partnerMoney: inputValue(money.partnerMoney),
-    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
-  });
-  const [partnerSaveStatus, setPartnerSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [partnerSaveError, setPartnerSaveError] = useState<string | null>(null);
+export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
+  const [sliceForm, setSliceForm] = useState(() => moneySliceFormFromData(money));
+  const [sliceChangedField, setSliceChangedField] = useState<MoneySliceEditableField | null>(null);
+  const [sliceSaveStatus, setSliceSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [sliceSaveError, setSliceSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    setPartnerForm({
-      partnerMoney: inputValue(money.partnerMoney),
-      partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
-    });
-  }, [money.partnerMoney, money.partnerCreditCardDebt]);
+    setSliceForm(moneySliceFormFromData(money));
+    setSliceChangedField(null);
+    setSliceSaveStatus("idle");
+    setSliceSaveError(null);
+  }, [
+    money.latestRecord?.totalAmount,
+    money.latestRecord?.freeAmount,
+    money.latestRecord?.investmentAmount,
+    money.latestRecord?.reserveAmount,
+    money.latestRecord?.creditCardDebt,
+    money.latestRecord?.rentPaid,
+    money.partnerMoney,
+    money.partnerCreditCardDebt
+  ]);
 
-  function updatePartnerField(field: keyof typeof partnerForm, value: string) {
-    setPartnerForm((current) => ({ ...current, [field]: value }));
-    setPartnerSaveStatus("idle");
-    setPartnerSaveError(null);
+  function updateSliceAmountField(field: MoneySliceAmountField, value: string) {
+    setSliceForm((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "partnerCreditCardDebt") {
+        const previousPartnerDebt = parseDraftMoneyValue(current.partnerCreditCardDebt);
+        const nextPartnerDebt = parseDraftMoneyValue(value);
+        const currentCreditDebt = parseDraftMoneyValue(current.creditCardDebt);
+        if (previousPartnerDebt !== null && nextPartnerDebt !== null && currentCreditDebt !== null) {
+          next.creditCardDebt = formatDraftMoneyValue(currentCreditDebt + nextPartnerDebt - previousPartnerDebt);
+        }
+      }
+      return recalculateMoneySliceForm(next, field, money);
+    });
+    setSliceChangedField(field);
+    setSliceSaveStatus("idle");
+    setSliceSaveError(null);
   }
 
-  async function savePartnerValues(event: FormEvent<HTMLFormElement>) {
+  function updateSliceRentPaid(value: MoneySliceForm["rentPaid"]) {
+    setSliceForm((current) => recalculateMoneySliceForm({ ...current, rentPaid: value }, "rentPaid", money));
+    setSliceChangedField("rentPaid");
+    setSliceSaveStatus("idle");
+    setSliceSaveError(null);
+  }
+
+  async function saveSliceValues(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPartnerSaveStatus("saving");
-    setPartnerSaveError(null);
+    const latest = money.latestRecord;
+    if (!latest) return;
+
+    setSliceSaveStatus("saving");
+    setSliceSaveError(null);
 
     try {
-      const nextValues = {
-        partnerMoney: parseMoneyInput(partnerForm.partnerMoney, "Деньги партнера"),
-        partnerCreditCardDebt: parseMoneyInput(partnerForm.partnerCreditCardDebt, "Долг партнера")
+      const visibleInputs = MONEY_SLICE_INPUTS.filter((input) => isMoneySliceFieldVisible(input.key, money, latest));
+      const nextValues: MoneySliceUpdateInput = {
+        changedField: sliceChangedField ?? undefined
       };
-      await updatePartnerMoneyData(nextValues);
-      await onPartnerMoneyUpdated?.();
-      setPartnerSaveStatus("saved");
+
+      for (const input of visibleInputs) {
+        nextValues[input.key] = parseMoneyInput(sliceForm[input.key], input.label, {
+          allowNegative: input.key === "freeAmount"
+        });
+      }
+
+      if (sliceForm.rentPaid) {
+        nextValues.rentPaid = sliceForm.rentPaid === "yes";
+      }
+
+      await updateMoneySliceData(nextValues);
+      await onMoneyUpdated?.();
+      setSliceSaveStatus("saved");
     } catch (error) {
-      setPartnerSaveStatus("idle");
-      setPartnerSaveError(error instanceof Error ? error.message : String(error));
+      setSliceSaveStatus("idle");
+      setSliceSaveError(error instanceof Error ? error.message : String(error));
     }
   }
-
-  const partnerFormChanged =
-    partnerForm.partnerMoney !== inputValue(money.partnerMoney) ||
-    partnerForm.partnerCreditCardDebt !== inputValue(money.partnerCreditCardDebt);
 
   if (money.status !== "ready") {
     return (
@@ -201,6 +374,12 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
   const latestRows = money.records.slice(-6).reverse();
   const preSync = money.sync.preSync;
   const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
+  const initialSliceForm = moneySliceFormFromData(money);
+  const visibleSliceInputs = MONEY_SLICE_INPUTS.filter((input) => isMoneySliceFieldVisible(input.key, money, latest));
+  const canEditRent = latest.rentPaid !== null;
+  const sliceFormChanged =
+    visibleSliceInputs.some((input) => sliceForm[input.key] !== initialSliceForm[input.key]) ||
+    (canEditRent && sliceForm.rentPaid !== initialSliceForm.rentPaid);
 
   return (
     <>
@@ -299,50 +478,62 @@ export function MoneyDashboard({ money, onPartnerMoneyUpdated }: MoneyDashboardP
             </div>
           </div>
 
-          <form className="money-partner-form" onSubmit={savePartnerValues}>
-            <div className="money-partner-heading">
-              <strong>Ручные суммы партнера</strong>
+          <form className="money-slice-form" onSubmit={saveSliceValues}>
+            <div className="money-slice-heading">
+              <strong>Редактировать срез</strong>
               <span>Сохраняются в Money.md</span>
             </div>
-            <div className="money-partner-fields">
-              <label className="money-input-control">
-                <span>Деньги партнера</span>
-                <span className="money-input-shell">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={partnerForm.partnerMoney}
-                    onChange={(event) => updatePartnerField("partnerMoney", event.target.value)}
-                    aria-label="Деньги партнера"
-                  />
-                  <span>₽</span>
-                </span>
-              </label>
-              <label className="money-input-control">
-                <span>Долг партнера</span>
-                <span className="money-input-shell">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={partnerForm.partnerCreditCardDebt}
-                    onChange={(event) => updatePartnerField("partnerCreditCardDebt", event.target.value)}
-                    aria-label="Долг партнера"
-                  />
-                  <span>₽</span>
-                </span>
-              </label>
+            <div className="money-slice-fields">
+              {visibleSliceInputs.map((input) => (
+                <label className="money-input-control" key={input.key}>
+                  <span>{input.label}</span>
+                  <span className="money-input-shell">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={sliceForm[input.key]}
+                      onChange={(event) => updateSliceAmountField(input.key, event.target.value)}
+                      aria-label={input.label}
+                    />
+                    <span>₽</span>
+                  </span>
+                </label>
+              ))}
             </div>
-            <div className="money-partner-actions">
-              <span className={`money-partner-status ${partnerSaveError ? "error" : ""}`} role="status">
-                {partnerSaveError ?? (partnerSaveStatus === "saved" ? "Сохранено" : "")}
+            {canEditRent ? (
+              <fieldset className="money-rent-toggle">
+                <legend>Аренда заплачена</legend>
+                <div>
+                  <button
+                    type="button"
+                    className={sliceForm.rentPaid === "yes" ? "active" : ""}
+                    aria-pressed={sliceForm.rentPaid === "yes"}
+                    onClick={() => updateSliceRentPaid("yes")}
+                  >
+                    Да
+                  </button>
+                  <button
+                    type="button"
+                    className={sliceForm.rentPaid === "no" ? "active" : ""}
+                    aria-pressed={sliceForm.rentPaid === "no"}
+                    onClick={() => updateSliceRentPaid("no")}
+                  >
+                    Нет
+                  </button>
+                </div>
+              </fieldset>
+            ) : null}
+            <div className="money-slice-actions">
+              <span className={`money-slice-status ${sliceSaveError ? "error" : ""}`} role="status">
+                {sliceSaveError ?? (sliceSaveStatus === "saved" ? "Сохранено" : "")}
               </span>
               <button
                 className="money-save-button"
                 type="submit"
-                disabled={partnerSaveStatus === "saving" || !partnerFormChanged}
+                disabled={sliceSaveStatus === "saving" || !sliceFormChanged}
               >
                 <Save size={15} />
-                <span>{partnerSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
+                <span>{sliceSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
               </button>
             </div>
           </form>

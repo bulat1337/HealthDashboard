@@ -157,3 +157,36 @@ export type HealthDataResponse = {
   version: number;
   data: DashboardData;
 };
+
+export type SportActivityKey = "run" | "pilates" | "strength" | "cycling";
+
+export type SportActivityCatalogEntry = {
+  key: SportActivityKey;
+  label: string;
+  color: string;
+};
+
+export type SportEntry = {
+  date: string;
+  activities: SportActivityKey[];
+};
+
+export type SportUser = {
+  id: string;
+  name: string;
+  activityTypes: SportActivityKey[];
+  entries: SportEntry[];
+};
+
+export type SportData = {
+  schemaVersion: number;
+  generatedAt: string;
+  sourceFile: string;
+  sourceMtimeMs: number | null;
+  activityCatalog: SportActivityCatalogEntry[];
+  users: SportUser[];
+};
+
+export type SportDataResponse = {
+  data: SportData;
+};

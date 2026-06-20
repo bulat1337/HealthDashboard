@@ -53,6 +53,8 @@ const DATA_FILE =
   process.env.HEALTH_DATA_FILE || path.join(DATA_DIR, "xiaomi-body-scale-data.json");
 const DEFAULT_MONEY_FILE = path.join(rootDir, "data", "money", "Money.md");
 const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
+const DEFAULT_SPORT_FILE = path.join(rootDir, "data", "sport", "sport-tracker.json");
+const SPORT_FILE = process.env.SPORT_DATA_FILE || DEFAULT_SPORT_FILE;
 const LOCAL_ASSETS_DIR = path.join(rootDir, "data", "assets");
 const MONEY_PARTNER_LABEL = process.env.MONEY_PARTNER_LABEL?.trim() || "партнера";
 const PORT = Number(process.env.PORT || 5000);
@@ -94,7 +96,7 @@ function publicPath(filePath: string) {
 
 function errorText(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error);
-  return [DATA_FILE, DATA_DIR, MONEY_FILE]
+  return [DATA_FILE, DATA_DIR, MONEY_FILE, SPORT_FILE]
     .sort((a, b) => b.length - a.length)
     .reduce((message, filePath) => message.replaceAll(filePath, publicPath(filePath)), raw);
 }
@@ -292,6 +294,57 @@ type MoneyData = {
   upcomingEvents: MoneyEvent[];
   summary: MoneySummary;
 };
+
+type SportActivityKey = "run" | "pilates" | "strength" | "cycling";
+
+type SportActivityCatalogEntry = {
+  key: SportActivityKey;
+  label: string;
+  color: string;
+};
+
+type SportEntry = {
+  date: string;
+  activities: SportActivityKey[];
+};
+
+type SportUser = {
+  id: string;
+  name: string;
+  activityTypes: SportActivityKey[];
+  entries: SportEntry[];
+};
+
+type SportData = {
+  schemaVersion: number;
+  generatedAt: string;
+  sourceFile: string;
+  sourceMtimeMs: number | null;
+  activityCatalog: SportActivityCatalogEntry[];
+  users: SportUser[];
+};
+
+type SportDayUpdate = {
+  userId: string;
+  date: string;
+  activities: SportActivityKey[];
+};
+
+const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
+  { key: "run", label: "Бег", color: "#2563eb" },
+  { key: "pilates", label: "Пилатес", color: "#db2777" },
+  { key: "strength", label: "Силовая", color: "#f59e0b" },
+  { key: "cycling", label: "Велотренировка", color: "#0f766e" }
+];
+
+const SPORT_USERS: Omit<SportUser, "entries">[] = [
+  { id: "bulat", name: "Булат", activityTypes: ["strength", "run", "pilates", "cycling"] },
+  { id: "diana", name: "Диана", activityTypes: ["run", "pilates", "cycling"] }
+];
+
+const SPORT_ACTIVITY_KEYS = new Set<SportActivityKey>(
+  SPORT_ACTIVITY_CATALOG.map((activity) => activity.key)
+);
 
 const METRIC_LABELS: Record<string, string> = {
   weight_kg: "Вес",
@@ -672,6 +725,139 @@ function loadMoneyData(): MoneyData {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+function isSportActivity(value: unknown): value is SportActivityKey {
+  return typeof value === "string" && SPORT_ACTIVITY_KEYS.has(value as SportActivityKey);
+}
+
+function normalizeSportActivities(raw: unknown, allowedActivities: SportActivityKey[]) {
+  if (!Array.isArray(raw)) return [];
+
+  const allowed = new Set(allowedActivities);
+  const activities: SportActivityKey[] = [];
+  for (const item of raw) {
+    if (!isSportActivity(item) || !allowed.has(item) || activities.includes(item)) continue;
+    activities.push(item);
+  }
+  return activities;
+}
+
+function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivityKey[]) {
+  if (!isPlainObject(rawUser) || !isPlainObject(rawUser.entries)) return [];
+
+  return Object.entries(rawUser.entries)
+    .map(([date, rawActivities]) => ({
+      date,
+      activities: normalizeSportActivities(rawActivities, allowedActivities)
+    }))
+    .filter((entry): entry is SportEntry => isDateKey(entry.date) && entry.activities.length > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function loadSportRawFile() {
+  if (!fs.existsSync(SPORT_FILE)) return { schemaVersion: 1, users: {} };
+  return JSON.parse(fs.readFileSync(SPORT_FILE, "utf8")) as unknown;
+}
+
+function loadSportData(): SportData {
+  const stat = fs.existsSync(SPORT_FILE) ? fs.statSync(SPORT_FILE) : null;
+  const raw = loadSportRawFile();
+  const rawUsers = isPlainObject(raw) && isPlainObject(raw.users) ? raw.users : {};
+  const rawSchemaVersion =
+    isPlainObject(raw) && typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1;
+
+  return {
+    schemaVersion: rawSchemaVersion,
+    generatedAt: new Date().toISOString(),
+    sourceFile: publicPath(SPORT_FILE),
+    sourceMtimeMs: stat?.mtimeMs ?? null,
+    activityCatalog: SPORT_ACTIVITY_CATALOG,
+    users: SPORT_USERS.map((user) => ({
+      ...user,
+      entries: normalizeSportEntries(rawUsers[user.id], user.activityTypes)
+    }))
+  };
+}
+
+function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
+  if (!isPlainObject(body)) {
+    throw new Error("Тело запроса должно быть JSON-объектом.");
+  }
+
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  const user = SPORT_USERS.find((candidate) => candidate.id === userId);
+  if (!user) {
+    throw new Error("Укажите пользователя: bulat или diana.");
+  }
+
+  if (!isDateKey(body.date)) {
+    throw new Error("Дата должна быть в формате YYYY-MM-DD.");
+  }
+
+  if (!Array.isArray(body.activities)) {
+    throw new Error("activities должен быть массивом.");
+  }
+
+  const allowed = new Set(user.activityTypes);
+  const activities: SportActivityKey[] = [];
+  for (const activity of body.activities) {
+    if (!isSportActivity(activity) || !allowed.has(activity)) {
+      throw new Error(`Тип спорта недоступен для ${user.name}.`);
+    }
+    if (!activities.includes(activity)) activities.push(activity);
+  }
+
+  return {
+    userId: user.id,
+    date: body.date,
+    activities
+  };
+}
+
+function writeSportDay(update: SportDayUpdate) {
+  const raw = loadSportRawFile();
+  const rawObject = isPlainObject(raw) ? raw : {};
+  const users = isPlainObject(rawObject.users) ? { ...rawObject.users } : {};
+  const existingUserRecord = users[update.userId];
+  const userRecord = isPlainObject(existingUserRecord) ? { ...existingUserRecord } : {};
+  const entries = isPlainObject(userRecord.entries) ? { ...userRecord.entries } : {};
+
+  if (update.activities.length > 0) {
+    entries[update.date] = update.activities;
+  } else {
+    delete entries[update.date];
+  }
+
+  users[update.userId] = {
+    ...userRecord,
+    entries
+  };
+
+  const nextRaw = {
+    ...rawObject,
+    schemaVersion: 1,
+    users
+  };
+
+  fs.mkdirSync(path.dirname(SPORT_FILE), { recursive: true });
+  fs.writeFileSync(SPORT_FILE, `${JSON.stringify(nextRaw, null, 2)}\n`, "utf8");
+}
+
 function measuredAtIso(measurement: RawMeasurement): string {
   const unixSeconds = asNumber(measurement.measured_at_unix_seconds);
   if (unixSeconds) return new Date(unixSeconds * 1000).toISOString();
@@ -1032,18 +1218,68 @@ type MoneyPartnerUpdate = {
   partnerCreditCardDebt?: number;
 };
 
-function normalizeMoneyPartnerInput(value: unknown, label: string) {
+const MONEY_SLICE_AMOUNT_FIELDS = [
+  "totalAmount",
+  "freeAmount",
+  "investmentAmount",
+  "reserveAmount",
+  "creditCardDebt",
+  "partnerMoney",
+  "partnerCreditCardDebt"
+] as const;
+
+type MoneySliceAmountField = (typeof MONEY_SLICE_AMOUNT_FIELDS)[number];
+type MoneySliceEditableField = MoneySliceAmountField | "rentPaid";
+type MoneySliceUpdate = Partial<Record<MoneySliceAmountField, number>> & {
+  rentPaid?: boolean;
+};
+
+const MONEY_SLICE_AMOUNT_LABELS: Record<MoneySliceAmountField, string> = {
+  totalAmount: "Общая сумма",
+  freeAmount: "Свободная сумма",
+  investmentAmount: "Инвестиции",
+  reserveAmount: "Несгораемая сумма",
+  creditCardDebt: "Долг по кредиткам",
+  partnerMoney: "Деньги партнера",
+  partnerCreditCardDebt: "Долг партнера"
+};
+
+const MONEY_SLICE_ROW_COLUMN_LABELS = {
+  totalAmount: "Общая сумма",
+  freeAmount: "Свободная сумма",
+  investmentAmount: "Инвестиции",
+  reserveAmount: "Несгораемая сумма",
+  creditCardDebt: "Долг по кредиткам"
+} as const;
+
+const MONEY_SLICE_EDITABLE_FIELDS = new Set<string>([...MONEY_SLICE_AMOUNT_FIELDS, "rentPaid"]);
+
+function normalizeMoneyAmountInput(value: unknown, label: string, options: { allowNegative?: boolean } = {}) {
   const amount = typeof value === "number" ? value : parseMoneyAmount(typeof value === "string" ? value : undefined);
   if (amount === null || !Number.isFinite(amount)) {
     throw new Error(`${label}: укажите число в рублях.`);
   }
-  if (amount < 0) {
+  if (!options.allowNegative && amount < 0) {
     throw new Error(`${label}: значение должно быть 0 или больше.`);
   }
-  if (amount > 1_000_000_000_000) {
+  if (Math.abs(amount) > 1_000_000_000_000) {
     throw new Error(`${label}: значение слишком большое.`);
   }
   return Math.round(amount);
+}
+
+function normalizeMoneyPartnerInput(value: unknown, label: string) {
+  return normalizeMoneyAmountInput(value, label);
+}
+
+function normalizeMoneyRentPaidInput(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["да", "yes", "true", "1"].includes(normalized)) return true;
+    if (["нет", "no", "false", "0"].includes(normalized)) return false;
+  }
+  throw new Error("Аренда заплачена: укажите да или нет.");
 }
 
 function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
@@ -1068,6 +1304,51 @@ function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
   }
 
   return update;
+}
+
+function inferMoneySliceChangedField(update: MoneySliceUpdate): MoneySliceEditableField | undefined {
+  const fields: MoneySliceEditableField[] = MONEY_SLICE_AMOUNT_FIELDS.filter((field) => update[field] !== undefined);
+  if (update.rentPaid !== undefined) fields.push("rentPaid");
+  return fields.length === 1 ? fields[0] : undefined;
+}
+
+function moneySliceUpdateFromBody(body: unknown) {
+  if (!body || typeof body !== "object") {
+    throw new Error("Тело запроса должно быть JSON-объектом.");
+  }
+
+  const candidate = body as Partial<Record<MoneySliceAmountField | "changedField" | "rentPaid", unknown>>;
+  const update: MoneySliceUpdate = {};
+
+  for (const field of MONEY_SLICE_AMOUNT_FIELDS) {
+    if (field in candidate) {
+      update[field] = normalizeMoneyAmountInput(candidate[field], MONEY_SLICE_AMOUNT_LABELS[field], {
+        allowNegative: field === "freeAmount"
+      });
+    }
+  }
+
+  if ("rentPaid" in candidate) {
+    update.rentPaid = normalizeMoneyRentPaidInput(candidate.rentPaid);
+  }
+
+  const changedField =
+    typeof candidate.changedField === "string" && MONEY_SLICE_EDITABLE_FIELDS.has(candidate.changedField)
+      ? (candidate.changedField as MoneySliceEditableField)
+      : undefined;
+
+  if ("changedField" in candidate && candidate.changedField !== undefined && changedField === undefined) {
+    throw new Error("Поле changedField содержит неизвестное имя.");
+  }
+
+  if (inferMoneySliceChangedField(update) === undefined && Object.keys(update).length === 0) {
+    throw new Error("Передайте хотя бы одно поле среза.");
+  }
+
+  return {
+    update,
+    changedField: changedField ?? inferMoneySliceChangedField(update)
+  };
 }
 
 function replaceLabeledMoneyAmount(text: string, labels: string[], value: number) {
@@ -1195,6 +1476,178 @@ function updateMoneyPartnerValuesText(text: string, update: MoneyPartnerUpdate) 
     text: nextText,
     values: nextValues
   };
+}
+
+function readRequiredMoneyRowAmount(cells: string[], column: number, label: string) {
+  if (column === -1) {
+    throw new Error(`Money table is missing column ${label}.`);
+  }
+
+  const amount = parseMoneyAmount(cells[column]);
+  if (amount === null) {
+    throw new Error(`Latest Money.md row is missing readable ${label}.`);
+  }
+  return amount;
+}
+
+function readOptionalMoneyRowAmount(cells: string[], column: number) {
+  if (column === -1) return 0;
+  return parseMoneyAmount(cells[column]) ?? 0;
+}
+
+function setMoneyRowAmount(cells: string[], column: number, label: string, value: number, shouldWrite: boolean) {
+  if (!shouldWrite && column === -1) return;
+  if (column === -1) {
+    throw new Error(`Money table is missing column ${label}.`);
+  }
+  cells[column] = formatMoneyAmount(value);
+}
+
+function moneySliceUnpaidRent(rentPaid: boolean | null, rentMonthly: number) {
+  return rentPaid === false ? rentMonthly : 0;
+}
+
+function updateLatestMoneySliceText(
+  text: string,
+  update: MoneySliceUpdate,
+  changedField?: MoneySliceEditableField
+) {
+  const oldPartnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS) ?? 0;
+  const oldPartnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS) ?? 0;
+  const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]) ?? 0;
+  const driver = changedField ?? inferMoneySliceChangedField(update);
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+
+  let nextText = text;
+  if (update.partnerCreditCardDebt !== undefined) {
+    nextText = replaceLabeledMoneyAmount(
+      nextText,
+      MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS,
+      update.partnerCreditCardDebt
+    );
+  }
+  if (update.partnerMoney !== undefined) {
+    nextText = replaceLabeledMoneyAmount(nextText, MONEY_PARTNER_MONEY_LABELS, update.partnerMoney);
+  }
+
+  const lines = nextText.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].trim().startsWith("|")) {
+      index += 1;
+      continue;
+    }
+
+    const blockStart = index;
+    while (index < lines.length && lines[index].trim().startsWith("|")) index += 1;
+
+    const parsedRows = lines
+      .slice(blockStart, index)
+      .map((line, offset) => ({
+        lineIndex: blockStart + offset,
+        cells: parseMarkdownTableLine(line)
+      }))
+      .filter((row) => row.cells.length > 0);
+
+    if (parsedRows.length < 2) continue;
+
+    const headers = parsedRows[0].cells;
+    const dateColumn = findColumn(headers, "Дата");
+    const totalColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount);
+    const freeColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount);
+    const investmentColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.investmentAmount);
+    const reserveColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.reserveAmount);
+    const debtColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt);
+    const rentPaidColumn = findColumn(headers, "Аренда заплачена");
+    if (dateColumn === -1 || totalColumn === -1 || freeColumn === -1) continue;
+
+    const dataRows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row.cells));
+    const latestRow = [...dataRows].reverse().find((row) => parseMoneyDate(row.cells[dateColumn]) !== null);
+    if (!latestRow) continue;
+
+    const oldCreditCardDebt = readOptionalMoneyRowAmount(latestRow.cells, debtColumn);
+    const oldRentPaid = rentPaidColumn === -1 ? null : parseRentPaid(latestRow.cells[rentPaidColumn]);
+    const nextValues = {
+      totalAmount:
+        update.totalAmount ??
+        readRequiredMoneyRowAmount(latestRow.cells, totalColumn, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount),
+      freeAmount:
+        update.freeAmount ??
+        readRequiredMoneyRowAmount(latestRow.cells, freeColumn, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount),
+      investmentAmount:
+        update.investmentAmount ?? readOptionalMoneyRowAmount(latestRow.cells, investmentColumn),
+      reserveAmount: update.reserveAmount ?? readOptionalMoneyRowAmount(latestRow.cells, reserveColumn),
+      creditCardDebt: update.creditCardDebt ?? oldCreditCardDebt,
+      rentPaid: update.rentPaid ?? oldRentPaid,
+      partnerMoney: update.partnerMoney ?? oldPartnerMoney,
+      partnerCreditCardDebt: update.partnerCreditCardDebt ?? oldPartnerCreditCardDebt
+    };
+
+    if (update.partnerCreditCardDebt !== undefined && update.creditCardDebt === undefined) {
+      if (debtColumn === -1) {
+        throw new Error(`Money table is missing column ${MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt}.`);
+      }
+      nextValues.creditCardDebt =
+        oldCreditCardDebt + update.partnerCreditCardDebt - oldPartnerCreditCardDebt;
+    }
+
+    const unpaidRent = moneySliceUnpaidRent(nextValues.rentPaid, rentMonthly);
+    const lockedAmount =
+      nextValues.reserveAmount + nextValues.creditCardDebt + nextValues.partnerMoney + unpaidRent;
+    if (driver === "freeAmount" || driver === "investmentAmount") {
+      nextValues.totalAmount =
+        nextValues.freeAmount + nextValues.investmentAmount + lockedAmount;
+    } else {
+      nextValues.freeAmount = nextValues.totalAmount - nextValues.investmentAmount - lockedAmount;
+    }
+
+    const nextCells = [...latestRow.cells];
+    setMoneyRowAmount(nextCells, totalColumn, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount, nextValues.totalAmount, true);
+    setMoneyRowAmount(nextCells, freeColumn, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount, nextValues.freeAmount, true);
+    setMoneyRowAmount(
+      nextCells,
+      investmentColumn,
+      MONEY_SLICE_ROW_COLUMN_LABELS.investmentAmount,
+      nextValues.investmentAmount,
+      investmentColumn !== -1 || update.investmentAmount !== undefined
+    );
+    setMoneyRowAmount(
+      nextCells,
+      reserveColumn,
+      MONEY_SLICE_ROW_COLUMN_LABELS.reserveAmount,
+      nextValues.reserveAmount,
+      reserveColumn !== -1 || update.reserveAmount !== undefined
+    );
+    setMoneyRowAmount(
+      nextCells,
+      debtColumn,
+      MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt,
+      nextValues.creditCardDebt,
+      debtColumn !== -1 || update.creditCardDebt !== undefined || update.partnerCreditCardDebt !== undefined
+    );
+    if (nextValues.rentPaid !== null && (rentPaidColumn !== -1 || update.rentPaid !== undefined)) {
+      if (rentPaidColumn === -1) {
+        throw new Error("Money table is missing column Аренда заплачена.");
+      }
+      nextCells[rentPaidColumn] = nextValues.rentPaid ? "да" : "нет";
+    }
+
+    const tableCells = parsedRows
+      .filter((row) => !isMarkdownSeparator(row.cells))
+      .map((row) => (row.lineIndex === latestRow.lineIndex ? nextCells : row.cells));
+    const columnCount = Math.max(...tableCells.map((cells) => cells.length), nextCells.length);
+    const widths = Array.from({ length: columnCount }, (_, columnIndex) =>
+      Math.max(...tableCells.map((cells) => cells[columnIndex]?.length ?? 0))
+    );
+    lines[latestRow.lineIndex] = renderMarkdownTableRow(nextCells, widths);
+    return {
+      text: lines.join(newline),
+      values: nextValues
+    };
+  }
+
+  throw new Error("Money table with columns Дата, Общая сумма and Свободная сумма was not found.");
 }
 
 type MoneySyncTrigger = "manual" | "schedule";
@@ -1442,7 +1895,7 @@ function scheduleNextMoneySync() {
 
 const app = express();
 const server = http.createServer(app);
-const sockets = new WebSocketServer({ server, path: "/ws" });
+const sockets = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "64kb" }));
 app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
@@ -1507,6 +1960,44 @@ app.post("/api/health-data/measurements", (request, response) => {
   }
 });
 
+app.get("/api/sport-data", (_request, response) => {
+  try {
+    response.json({ data: loadSportData() });
+  } catch (error) {
+    response.status(500).json({
+      error: errorText(error),
+      dataFile: publicPath(SPORT_FILE)
+    });
+  }
+});
+
+app.patch("/api/sport-data/day", (request, response) => {
+  try {
+    const update = sportDayUpdateFromBody(request.body);
+    writeSportDay(update);
+
+    const data = loadSportData();
+    const updatedAt = new Date().toISOString();
+    broadcast({
+      type: "sport-data-updated",
+      event: "day-update",
+      path: publicPath(SPORT_FILE),
+      updatedAt
+    });
+
+    response.json({
+      ok: true,
+      updatedAt,
+      data
+    });
+  } catch (error) {
+    response.status(400).json({
+      ok: false,
+      error: errorText(error)
+    });
+  }
+});
+
 app.post("/api/money-data/refresh", async (_request, response) => {
   try {
     const result = await runMoneySync("manual");
@@ -1562,11 +2053,49 @@ app.patch("/api/money-data/partner", (request, response) => {
   }
 });
 
+app.patch("/api/money-data/slice", (request, response) => {
+  try {
+    const { update, changedField } = moneySliceUpdateFromBody(request.body);
+    const currentText = fs.readFileSync(MONEY_FILE, "utf8");
+    const result = updateLatestMoneySliceText(currentText, update, changedField);
+
+    if (result.text !== currentText) {
+      fs.writeFileSync(MONEY_FILE, result.text, "utf8");
+    }
+
+    const data = refreshCache();
+    const updatedAt = new Date().toISOString();
+    broadcast({
+      type: "money-data-updated",
+      event: "money-slice",
+      path: publicPath(MONEY_FILE),
+      version: dataVersion,
+      updatedAt
+    });
+
+    response.json({
+      ok: true,
+      version: dataVersion,
+      updatedAt,
+      changedField,
+      values: result.values,
+      money: data.money
+    });
+  } catch (error) {
+    response.status(400).json({
+      ok: false,
+      error: errorText(error)
+    });
+  }
+});
+
 app.get("/api/status", (_request, response) => {
   const exists = fs.existsSync(DATA_FILE);
   const stat = exists ? fs.statSync(DATA_FILE) : null;
   const moneyExists = fs.existsSync(MONEY_FILE);
   const moneyStat = moneyExists ? fs.statSync(MONEY_FILE) : null;
+  const sportExists = fs.existsSync(SPORT_FILE);
+  const sportStat = sportExists ? fs.statSync(SPORT_FILE) : null;
   const money = cachedData?.money ?? loadMoneyData();
   response.json({
     ok: exists && lastLoadError === null,
@@ -1583,6 +2112,10 @@ app.get("/api/status", (_request, response) => {
         ...moneySyncState,
         preSync: publicMoneySyncState().preSync
       }
+    },
+    sport: {
+      sourceFile: publicPath(SPORT_FILE),
+      sourceMtimeMs: sportStat?.mtimeMs ?? null
     },
     lastLoadError
   });
@@ -1678,7 +2211,7 @@ async function configureFrontend() {
     appType: "custom",
     server: {
       middlewareMode: true,
-      hmr: { server }
+      hmr: { server, clientPort: PORT }
     }
   });
 
@@ -1697,6 +2230,15 @@ async function configureFrontend() {
 }
 
 await configureFrontend();
+
+server.on("upgrade", (request, socket, head) => {
+  const pathname = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`).pathname;
+  if (pathname !== "/ws") return;
+
+  sockets.handleUpgrade(request, socket, head, (webSocket) => {
+    sockets.emit("connection", webSocket, request);
+  });
+});
 
 server.listen(PORT, HOST, () => {
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;

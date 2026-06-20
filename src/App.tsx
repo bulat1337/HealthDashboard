@@ -17,6 +17,7 @@ import { fetchHealthData, openHealthSocket, refreshMoneyData } from "./api";
 import { HealthChart } from "./components/HealthChart";
 import { MoneyDashboard } from "./components/MoneyDashboard";
 import { RelationshipDashboard } from "./components/RelationshipDashboard";
+import { SportDashboard } from "./components/SportDashboard";
 import {
   buildChartPoints,
   changeBetweenEdges,
@@ -29,7 +30,7 @@ import {
 } from "./stats";
 import type { DashboardData, MetricCatalogEntry, NormalizedMeasurement } from "./types";
 
-type Domain = "health" | "money" | "relationships";
+type Domain = "health" | "money" | "relationships" | "sport";
 
 const QUICK_METRICS = [
   "weight_kg",
@@ -203,6 +204,7 @@ function App() {
   const [lastEventAt, setLastEventAt] = useState<string | null>(null);
   const [today, setToday] = useState(() => new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [sportRefreshKey, setSportRefreshKey] = useState(0);
 
   async function load(signal?: AbortSignal) {
     const response = await fetchHealthData(signal);
@@ -221,6 +223,9 @@ function App() {
     try {
       if (activeDomain === "money") {
         await refreshMoneyData();
+      }
+      if (activeDomain === "sport") {
+        setSportRefreshKey((current) => current + 1);
       }
       await load();
     } catch (refreshError) {
@@ -260,6 +265,10 @@ function App() {
           load().catch((loadError) =>
             setError(loadError instanceof Error ? loadError.message : String(loadError))
           );
+        }
+        if (event.type === "sport-data-updated") {
+          setLastEventAt(event.updatedAt ?? new Date().toISOString());
+          setSportRefreshKey((current) => current + 1);
         }
         if (event.type === "health-data-error" || event.type === "money-data-error") {
           setError("Ошибка чтения обновленных данных");
@@ -409,13 +418,23 @@ function App() {
             <HeartHandshake size={16} />
             <span>Отношения</span>
           </button>
+          <button
+            type="button"
+            className={activeDomain === "sport" ? "active" : ""}
+            onClick={() => setActiveDomain("sport")}
+          >
+            <Dumbbell size={16} />
+            <span>Спорт</span>
+          </button>
         </div>
       </section>
 
       {activeDomain === "money" ? (
-        <MoneyDashboard money={data.money} onPartnerMoneyUpdated={() => load()} />
+        <MoneyDashboard money={data.money} onMoneyUpdated={() => load()} />
       ) : activeDomain === "relationships" ? (
         <RelationshipDashboard today={today} />
+      ) : activeDomain === "sport" ? (
+        <SportDashboard today={today} refreshKey={sportRefreshKey} />
       ) : selectedMetricInfo ? (
         <>
       <section className="control-band">

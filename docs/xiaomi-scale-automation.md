@@ -55,7 +55,7 @@ curl -X POST "http://127.0.0.1:5000/api/health-data/measurements" \
 
 ### Текущий deployed-вариант: Standalone BLE Bridge
 
-На локальном Linux-хосте работает user systemd service `xiaomi-scale-bridge.service`. Bridge слушает BLE-рекламы S400, расшифровывает MiBeacon V5 через `XIAOMI_SCALE_BINDKEY`, накапливает BLE-фрагменты по адресу весов и ждет `weight`, `impedance` и `impedanceLow`, затем выдерживает короткое окно для `profile_id` и `heartRate` и отправляет один payload в dashboard.
+На локальном Linux-хосте работает user systemd service `xiaomi-scale-bridge.service`. Bridge слушает BLE-рекламы S400, расшифровывает MiBeacon V5 через `XIAOMI_SCALE_BINDKEY`, накапливает BLE-фрагменты по адресу весов и ждет `weight`, `impedance` и `impedanceLow`, затем выдерживает короткое окно для `profile_id` и `heartRate` и отправляет один payload в dashboard. BLE scanner внутри процесса перезапускается по таймеру, чтобы BlueZ/Bleak не оставались в тихом зависшем состоянии overnight при живом systemd-процессе.
 
 Основные файлы:
 
@@ -109,6 +109,14 @@ export XIAOMI_SCALE_ADDRESS="8C:D0:B2:F6:BE:EF"
 export XIAOMI_SCALE_DEFAULT_USER="Demo User"
 export XIAOMI_SCALE_SETTLE_SECONDS=6
 export XIAOMI_SCALE_PENDING_TTL_SECONDS=90
+export XIAOMI_SCALE_SCANNER_RESTART_SECONDS=900
+export XIAOMI_SCALE_SCANNER_RESTART_DELAY_SECONDS=2
+export XIAOMI_SCALE_SCANNER_FAILURE_DELAY_SECONDS=15
+export XIAOMI_SCALE_SCANNER_FAILURE_EXIT_THRESHOLD=4
+export XIAOMI_SCALE_SCANNER_RECOVERY_COMMAND="bluetoothctl scan off"
+export XIAOMI_SCALE_SCANNER_RECOVERY_TIMEOUT_SECONDS=10
+export XIAOMI_SCALE_SCANNER_STOP_TIMEOUT_SECONDS=10
+export XIAOMI_SCALE_POST_TIMEOUT_SECONDS=10
 
 python scripts/xiaomi-s400-ble-bridge.py
 ```
@@ -120,6 +128,22 @@ export XIAOMI_SCALE_USER_MAP='{"1":"Demo User","2":"Partner"}'
 ```
 
 Если BLE payload приходит без `profile_id`, bridge использует `XIAOMI_SCALE_DEFAULT_USER`, когда переменная задана. Сервер также сам выбирает пользователя, когда в `xiaomi-body-scale-data.json` есть ровно один пользователь. Для нескольких пользователей без стабильного `profile_id` задайте `XIAOMI_SCALE_DEFAULT_USER` на bridge или `HEALTH_INGEST_DEFAULT_USER` на сервере.
+
+`XIAOMI_SCALE_SCANNER_RESTART_SECONDS` задает мягкий restart BLE scanner внутри процесса. Значение `900` означает restart каждые 15 минут; `0` отключает таймер. Bridge логирует `Restarting Xiaomi S400 BLE scanner ...` перед каждым таким циклом. Если BlueZ возвращает `org.bluez.Error.InProgress`, bridge пробует остановить stale discovery через `XIAOMI_SCALE_SCANNER_RECOVERY_COMMAND`, делает backoff и после `XIAOMI_SCALE_SCANNER_FAILURE_EXIT_THRESHOLD` подряд ошибок завершает процесс для systemd restart.
+
+Если kernel log показывает `Bluetooth: hci0: command 0x200c tx timeout` или `Bluetooth: hci0: Unable to disable scanning`, завис USB Bluetooth controller. Сбросить его можно так:
+
+```bash
+sudo /home/bulat/apps/health-dashboard/deploy/reset-scale-bluetooth.sh
+```
+
+Для автоматического сброса застрявшего `hci0` установите root watchdog timer:
+
+```bash
+sudo /home/bulat/apps/health-dashboard/deploy/install-scale-bluetooth-watchdog.sh
+```
+
+Watchdog проверяет bridge и kernel log раз в 24 часа. При повторении `InProgress` или `hci0` timeout он запускает тот же reset-скрипт с cooldown.
 
 ### Альтернатива: Home Assistant Xiaomi BLE
 
