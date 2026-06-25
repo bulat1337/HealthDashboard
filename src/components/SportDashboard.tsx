@@ -52,9 +52,18 @@ const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   run: Footprints,
   pilates: Activity,
-  strength: Dumbbell,
+  strength_lower: Dumbbell,
+  strength_upper: Dumbbell,
+  strength_whole: Dumbbell,
   cycling: Bike
 };
+
+const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
+  "strength_lower",
+  "strength_upper",
+  "strength_whole"
+];
+const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KEYS);
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -292,6 +301,9 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     if (selected.has(activityKey)) {
       selected.delete(activityKey);
     } else {
+      if (STRENGTH_ACTIVITY_KEY_SET.has(activityKey)) {
+        STRENGTH_ACTIVITY_KEYS.forEach((strengthKey) => selected.delete(strengthKey));
+      }
       selected.add(activityKey);
     }
     void saveActivities([...selected]);

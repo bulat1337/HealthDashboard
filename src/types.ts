@@ -158,7 +158,13 @@ export type HealthDataResponse = {
   data: DashboardData;
 };
 
-export type SportActivityKey = "run" | "pilates" | "strength" | "cycling";
+export type SportActivityKey =
+  | "run"
+  | "pilates"
+  | "strength_lower"
+  | "strength_upper"
+  | "strength_whole"
+  | "cycling";
 
 export type SportActivityCatalogEntry = {
   key: SportActivityKey;

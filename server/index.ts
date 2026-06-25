@@ -295,7 +295,13 @@ type MoneyData = {
   summary: MoneySummary;
 };
 
-type SportActivityKey = "run" | "pilates" | "strength" | "cycling";
+type SportActivityKey =
+  | "run"
+  | "pilates"
+  | "strength_lower"
+  | "strength_upper"
+  | "strength_whole"
+  | "cycling";
 
 type SportActivityCatalogEntry = {
   key: SportActivityKey;
@@ -333,18 +339,37 @@ type SportDayUpdate = {
 const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "run", label: "Бег", color: "#2563eb" },
   { key: "pilates", label: "Пилатес", color: "#db2777" },
-  { key: "strength", label: "Силовая", color: "#f59e0b" },
+  { key: "strength_lower", label: "Силовая · lower body", color: "#f97316" },
+  { key: "strength_upper", label: "Силовая · upper body", color: "#ea580c" },
+  { key: "strength_whole", label: "Силовая · whole body", color: "#f59e0b" },
   { key: "cycling", label: "Велотренировка", color: "#0f766e" }
 ];
 
 const SPORT_USERS: Omit<SportUser, "entries">[] = [
-  { id: "bulat", name: "Булат", activityTypes: ["strength", "run", "pilates", "cycling"] },
-  { id: "diana", name: "Диана", activityTypes: ["run", "pilates", "cycling"] }
+  {
+    id: "bulat",
+    name: "Булат",
+    activityTypes: ["strength_lower", "strength_upper", "strength_whole", "run", "pilates", "cycling"]
+  },
+  {
+    id: "diana",
+    name: "Диана",
+    activityTypes: ["strength_lower", "strength_upper", "strength_whole", "run", "pilates", "cycling"]
+  }
 ];
 
 const SPORT_ACTIVITY_KEYS = new Set<SportActivityKey>(
   SPORT_ACTIVITY_CATALOG.map((activity) => activity.key)
 );
+const SPORT_STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
+  "strength_lower",
+  "strength_upper",
+  "strength_whole"
+];
+const SPORT_STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(SPORT_STRENGTH_ACTIVITY_KEYS);
+const SPORT_LEGACY_ACTIVITY_MAP: Record<string, SportActivityKey> = {
+  strength: "strength_whole"
+};
 
 const METRIC_LABELS: Record<string, string> = {
   weight_kg: "Вес",
@@ -741,8 +766,23 @@ function isDateKey(value: unknown): value is string {
   );
 }
 
-function isSportActivity(value: unknown): value is SportActivityKey {
-  return typeof value === "string" && SPORT_ACTIVITY_KEYS.has(value as SportActivityKey);
+function sportActivityFromUnknown(value: unknown): SportActivityKey | null {
+  if (typeof value !== "string") return null;
+  if (SPORT_ACTIVITY_KEYS.has(value as SportActivityKey)) return value as SportActivityKey;
+  return SPORT_LEGACY_ACTIVITY_MAP[value] ?? null;
+}
+
+function appendSportActivity(activities: SportActivityKey[], activity: SportActivityKey) {
+  if (activities.includes(activity)) return;
+
+  if (SPORT_STRENGTH_ACTIVITY_KEY_SET.has(activity)) {
+    const existingStrengthIndex = activities.findIndex((candidate) =>
+      SPORT_STRENGTH_ACTIVITY_KEY_SET.has(candidate)
+    );
+    if (existingStrengthIndex >= 0) activities.splice(existingStrengthIndex, 1);
+  }
+
+  activities.push(activity);
 }
 
 function normalizeSportActivities(raw: unknown, allowedActivities: SportActivityKey[]) {
@@ -751,8 +791,9 @@ function normalizeSportActivities(raw: unknown, allowedActivities: SportActivity
   const allowed = new Set(allowedActivities);
   const activities: SportActivityKey[] = [];
   for (const item of raw) {
-    if (!isSportActivity(item) || !allowed.has(item) || activities.includes(item)) continue;
-    activities.push(item);
+    const activity = sportActivityFromUnknown(item);
+    if (!activity || !allowed.has(activity)) continue;
+    appendSportActivity(activities, activity);
   }
   return activities;
 }
@@ -816,10 +857,11 @@ function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
   const allowed = new Set(user.activityTypes);
   const activities: SportActivityKey[] = [];
   for (const activity of body.activities) {
-    if (!isSportActivity(activity) || !allowed.has(activity)) {
+    const normalizedActivity = sportActivityFromUnknown(activity);
+    if (!normalizedActivity || !allowed.has(normalizedActivity)) {
       throw new Error(`Тип спорта недоступен для ${user.name}.`);
     }
-    if (!activities.includes(activity)) activities.push(activity);
+    appendSportActivity(activities, normalizedActivity);
   }
 
   return {
