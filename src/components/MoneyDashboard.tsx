@@ -1,18 +1,22 @@
 import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Banknote,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   CircleAlert,
   CreditCard,
   LineChart,
   Landmark,
+  Pencil,
   PiggyBank,
   Save,
   Smartphone,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
-import { updateMoneySliceData, type MoneySliceUpdateInput } from "../api";
+import { updateMoneyRecordData, updatePartnerMoneyData } from "../api";
 import { formatDateShort, formatDateTime, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
@@ -34,28 +38,22 @@ type CompositionSegment = {
 
 type MoneyDashboardProps = {
   money: MoneyData;
-  onMoneyUpdated?: () => Promise<void> | void;
+  onMoneyDataUpdated?: () => Promise<void> | void;
 };
 
-type MoneySliceAmountField =
-  | "totalAmount"
-  | "freeAmount"
-  | "investmentAmount"
-  | "reserveAmount"
-  | "creditCardDebt"
-  | "partnerMoney"
-  | "partnerCreditCardDebt";
+type RentPaidFormValue = "unknown" | "yes" | "no";
 
-type MoneySliceEditableField = MoneySliceAmountField | "rentPaid";
-
-type MoneySliceForm = Record<MoneySliceAmountField, string> & {
-  rentPaid: "yes" | "no" | "";
+type MoneyRecordForm = {
+  dateIso: string;
+  totalAmount: string;
+  freeAmount: string;
+  investmentAmount: string;
+  reserveAmount: string;
+  creditCardDebt: string;
+  rentPaid: RentPaidFormValue;
 };
 
-type MoneySliceInput = {
-  key: MoneySliceAmountField;
-  label: string;
-};
+type MoneyRecordAmountField = Exclude<keyof MoneyRecordForm, "dateIso" | "rentPaid">;
 
 const MONEY_TILES: MoneyTile[] = [
   { key: "totalAmount", label: "Общая сумма", icon: Landmark, tone: "blue" },
@@ -63,16 +61,6 @@ const MONEY_TILES: MoneyTile[] = [
   { key: "investmentAmount", label: "Инвестиции", icon: LineChart, tone: "teal" },
   { key: "reserveAmount", label: "Несгораемая", icon: PiggyBank, tone: "amber" },
   { key: "creditCardDebt", label: "Кредитки", icon: CreditCard, tone: "red" }
-];
-
-const MONEY_SLICE_INPUTS: MoneySliceInput[] = [
-  { key: "totalAmount", label: "Общая" },
-  { key: "freeAmount", label: "Свободная" },
-  { key: "investmentAmount", label: "Инвестиции" },
-  { key: "reserveAmount", label: "Резерв" },
-  { key: "creditCardDebt", label: "Кредитки" },
-  { key: "partnerMoney", label: "Деньги партнера" },
-  { key: "partnerCreditCardDebt", label: "Долг партнера" }
 ];
 
 function formatMoney(value: number | null | undefined) {
@@ -146,201 +134,237 @@ function inputValue(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }
 
-function rentPaidInputValue(value: boolean | null | undefined): MoneySliceForm["rentPaid"] {
-  if (value === true) return "yes";
-  if (value === false) return "no";
-  return "";
+function parseMoneyInput(value: string, label: string) {
+  const normalized = value.replace(/\s/g, "").replace(",", ".");
+  if (!normalized) throw new Error(`${label}: укажите сумму.`);
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
+  if (parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
+  return Math.round(parsed);
 }
 
-function moneySliceFormFromData(money: MoneyData): MoneySliceForm {
-  const latest = money.latestRecord;
+function rentPaidFormValue(value: boolean | null | undefined): RentPaidFormValue {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "unknown";
+}
+
+function moneyRecordFormValue(record: MoneyRecord | null | undefined): MoneyRecordForm {
   return {
-    totalAmount: inputValue(latest?.totalAmount),
-    freeAmount: inputValue(latest?.freeAmount),
-    investmentAmount: inputValue(latest?.investmentAmount),
-    reserveAmount: inputValue(latest?.reserveAmount),
-    creditCardDebt: inputValue(latest?.creditCardDebt),
-    partnerMoney: inputValue(money.partnerMoney),
-    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt),
-    rentPaid: rentPaidInputValue(latest?.rentPaid)
+    dateIso: record?.dateIso ?? "",
+    totalAmount: inputValue(record?.totalAmount),
+    freeAmount: inputValue(record?.freeAmount),
+    investmentAmount: inputValue(record?.investmentAmount),
+    reserveAmount: inputValue(record?.reserveAmount),
+    creditCardDebt: inputValue(record?.creditCardDebt),
+    rentPaid: rentPaidFormValue(record?.rentPaid)
   };
 }
 
-function parseDraftMoneyValue(value: string) {
+function parseOptionalMoneyInput(value: string, label: string) {
+  const normalized = value.replace(/['’\s]/g, "").replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
+  if (Math.abs(parsed) > 1_000_000_000_000) throw new Error(`${label}: значение слишком большое.`);
+  return Math.round(parsed);
+}
+
+function parseRentPaidFormValue(value: RentPaidFormValue) {
+  if (value === "yes") return true;
+  if (value === "no") return false;
+  return null;
+}
+
+function parseRecordDraftAmount(value: string) {
   const normalized = value
     .replace(/₽/g, "")
-    .replace(/\s/g, "")
-    .replace(/'/g, "")
+    .replace(/['’\s]/g, "")
     .replace(",", ".");
   if (!normalized || normalized === "-") return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
-function formatDraftMoneyValue(value: number) {
+function recordDraftAmount(form: MoneyRecordForm, field: MoneyRecordAmountField) {
+  return parseRecordDraftAmount(form[field]) ?? 0;
+}
+
+function formatRecordDraftAmount(value: number) {
   return String(Math.round(value));
 }
 
-function isMoneySliceFieldVisible(field: MoneySliceAmountField, money: MoneyData, latest: MoneyRecord) {
-  if (field === "investmentAmount") return latest.investmentAmount !== null;
-  if (field === "reserveAmount") return latest.reserveAmount !== null;
-  if (field === "creditCardDebt") return latest.creditCardDebt !== null;
-  if (field === "partnerMoney") return money.partnerMoney !== null;
-  if (field === "partnerCreditCardDebt") return money.partnerCreditCardDebt !== null && latest.creditCardDebt !== null;
-  return true;
+function unpaidRentFromForm(form: MoneyRecordForm, rentMonthly: number | null) {
+  return parseRentPaidFormValue(form.rentPaid) === false ? rentMonthly ?? 0 : 0;
 }
 
-function formMoneyValue(
-  form: MoneySliceForm,
-  field: MoneySliceAmountField,
-  money: MoneyData,
-  latest: MoneyRecord
-) {
-  const parsed = parseDraftMoneyValue(form[field]);
-  if (parsed !== null) return parsed;
-  return isMoneySliceFieldVisible(field, money, latest) ? null : 0;
-}
-
-function rentPaidFromForm(form: MoneySliceForm) {
-  if (form.rentPaid === "yes") return true;
-  if (form.rentPaid === "no") return false;
-  return null;
-}
-
-function recalculateMoneySliceForm(
-  form: MoneySliceForm,
-  changedField: MoneySliceEditableField,
+function recalculateMoneyRecordForm(
+  form: MoneyRecordForm,
+  changedField: keyof MoneyRecordForm,
   money: MoneyData
-): MoneySliceForm {
-  const latest = money.latestRecord;
-  if (!latest) return form;
+) {
+  if (changedField === "dateIso") return form;
 
-  const totalAmount = formMoneyValue(form, "totalAmount", money, latest);
-  const freeAmount = formMoneyValue(form, "freeAmount", money, latest);
-  const investmentAmount = formMoneyValue(form, "investmentAmount", money, latest);
-  const reserveAmount = formMoneyValue(form, "reserveAmount", money, latest);
-  const creditCardDebt = formMoneyValue(form, "creditCardDebt", money, latest);
-  const partnerMoney = formMoneyValue(form, "partnerMoney", money, latest);
-  const rentPaid = rentPaidFromForm(form);
+  const freeAmount = recordDraftAmount(form, "freeAmount");
+  const investmentAmount = recordDraftAmount(form, "investmentAmount");
+  const reserveAmount = recordDraftAmount(form, "reserveAmount");
+  const creditCardDebt = recordDraftAmount(form, "creditCardDebt");
+  const partnerMoney = money.partnerMoney ?? 0;
+  const unpaidRent = unpaidRentFromForm(form, money.rentMonthly);
 
-  if (
-    totalAmount === null ||
-    freeAmount === null ||
-    investmentAmount === null ||
-    reserveAmount === null ||
-    creditCardDebt === null ||
-    partnerMoney === null
-  ) {
-    return form;
-  }
-
-  const unpaidRent = rentPaid === false ? money.rentMonthly ?? 0 : 0;
-  const lockedAmount = reserveAmount + creditCardDebt + partnerMoney + unpaidRent;
-  if (changedField === "freeAmount" || changedField === "investmentAmount") {
+  if (changedField === "freeAmount") {
     return {
       ...form,
-      totalAmount: formatDraftMoneyValue(freeAmount + investmentAmount + lockedAmount)
+      totalAmount: formatRecordDraftAmount(
+        freeAmount + investmentAmount + reserveAmount + creditCardDebt + partnerMoney + unpaidRent
+      )
     };
   }
 
+  const totalAmount = recordDraftAmount(form, "totalAmount");
   return {
     ...form,
-    freeAmount: formatDraftMoneyValue(totalAmount - investmentAmount - lockedAmount)
+    freeAmount: formatRecordDraftAmount(
+      totalAmount - investmentAmount - reserveAmount - creditCardDebt - partnerMoney - unpaidRent
+    )
   };
 }
 
-function parseMoneyInput(value: string, label: string, options: { allowNegative?: boolean } = {}) {
-  const normalized = value
-    .replace(/₽/g, "")
-    .replace(/\s/g, "")
-    .replace(/'/g, "")
-    .replace(",", ".");
-  if (!normalized) throw new Error(`${label}: укажите сумму.`);
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
-  if (!options.allowNegative && parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
-  return Math.round(parsed);
+function formChanged(current: MoneyRecordForm, original: MoneyRecordForm) {
+  return (Object.keys(current) as (keyof MoneyRecordForm)[]).some((key) => current[key] !== original[key]);
 }
 
-export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
-  const [sliceForm, setSliceForm] = useState(() => moneySliceFormFromData(money));
-  const [sliceChangedField, setSliceChangedField] = useState<MoneySliceEditableField | null>(null);
-  const [sliceSaveStatus, setSliceSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [sliceSaveError, setSliceSaveError] = useState<string | null>(null);
+export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProps) {
+  const latest = money.latestRecord;
+  const [partnerForm, setPartnerForm] = useState({
+    partnerMoney: inputValue(money.partnerMoney),
+    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
+  });
+  const [partnerSaveStatus, setPartnerSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [partnerSaveError, setPartnerSaveError] = useState<string | null>(null);
+  const [showAllRecords, setShowAllRecords] = useState(false);
+  const [selectedRecordId, setSelectedRecordId] = useState<number | null>(latest?.rowId ?? null);
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [scrollTargetId, setScrollTargetId] = useState<number | null>(null);
+  const selectedRecordRef = useRef<HTMLTableRowElement | null>(null);
+  const selectedRecord = useMemo(() => {
+    if (selectedRecordId === null) return latest;
+    return money.records.find((record) => record.rowId === selectedRecordId) ?? latest;
+  }, [latest, money.records, selectedRecordId]);
+  const [recordForm, setRecordForm] = useState<MoneyRecordForm>(() => moneyRecordFormValue(selectedRecord));
+  const [recordSaveStatus, setRecordSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [recordSaveError, setRecordSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    setSliceForm(moneySliceFormFromData(money));
-    setSliceChangedField(null);
-    setSliceSaveStatus("idle");
-    setSliceSaveError(null);
+    setPartnerForm({
+      partnerMoney: inputValue(money.partnerMoney),
+      partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
+    });
+  }, [money.partnerMoney, money.partnerCreditCardDebt]);
+
+  useEffect(() => {
+    setSelectedRecordId((current) => {
+      if (current !== null && money.records.some((record) => record.rowId === current)) return current;
+      return latest?.rowId ?? null;
+    });
+  }, [latest?.rowId, money.records]);
+
+  useEffect(() => {
+    setRecordForm(moneyRecordFormValue(selectedRecord));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
   }, [
-    money.latestRecord?.totalAmount,
-    money.latestRecord?.freeAmount,
-    money.latestRecord?.investmentAmount,
-    money.latestRecord?.reserveAmount,
-    money.latestRecord?.creditCardDebt,
-    money.latestRecord?.rentPaid,
-    money.partnerMoney,
-    money.partnerCreditCardDebt
+    selectedRecord?.rowId,
+    selectedRecord?.dateIso,
+    selectedRecord?.totalAmount,
+    selectedRecord?.freeAmount,
+    selectedRecord?.investmentAmount,
+    selectedRecord?.reserveAmount,
+    selectedRecord?.creditCardDebt,
+    selectedRecord?.rentPaid
   ]);
 
-  function updateSliceAmountField(field: MoneySliceAmountField, value: string) {
-    setSliceForm((current) => {
-      const next = { ...current, [field]: value };
-      if (field === "partnerCreditCardDebt") {
-        const previousPartnerDebt = parseDraftMoneyValue(current.partnerCreditCardDebt);
-        const nextPartnerDebt = parseDraftMoneyValue(value);
-        const currentCreditDebt = parseDraftMoneyValue(current.creditCardDebt);
-        if (previousPartnerDebt !== null && nextPartnerDebt !== null && currentCreditDebt !== null) {
-          next.creditCardDebt = formatDraftMoneyValue(currentCreditDebt + nextPartnerDebt - previousPartnerDebt);
-        }
-      }
-      return recalculateMoneySliceForm(next, field, money);
-    });
-    setSliceChangedField(field);
-    setSliceSaveStatus("idle");
-    setSliceSaveError(null);
+  useEffect(() => {
+    if (scrollTargetId === null || selectedRecord?.rowId !== scrollTargetId) return;
+    selectedRecordRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setScrollTargetId(null);
+  }, [scrollTargetId, selectedRecord?.rowId, showAllRecords]);
+
+  function updatePartnerField(field: keyof typeof partnerForm, value: string) {
+    setPartnerForm((current) => ({ ...current, [field]: value }));
+    setPartnerSaveStatus("idle");
+    setPartnerSaveError(null);
   }
 
-  function updateSliceRentPaid(value: MoneySliceForm["rentPaid"]) {
-    setSliceForm((current) => recalculateMoneySliceForm({ ...current, rentPaid: value }, "rentPaid", money));
-    setSliceChangedField("rentPaid");
-    setSliceSaveStatus("idle");
-    setSliceSaveError(null);
+  function updateRecordField<Key extends keyof MoneyRecordForm>(field: Key, value: MoneyRecordForm[Key]) {
+    setRecordForm((current) => recalculateMoneyRecordForm({ ...current, [field]: value }, field, money));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
   }
 
-  async function saveSliceValues(event: FormEvent<HTMLFormElement>) {
+  function selectMoneyRecord(record: MoneyRecord, options?: { revealAll?: boolean; scroll?: boolean }) {
+    setSelectedRecordId(record.rowId);
+    setEditingRecordId(null);
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
+    if (options?.revealAll) setShowAllRecords(true);
+    if (options?.scroll) setScrollTargetId(record.rowId);
+  }
+
+  function editMoneyRecord(record: MoneyRecord) {
+    setSelectedRecordId(record.rowId);
+    setEditingRecordId(record.rowId);
+    setRecordForm(moneyRecordFormValue(record));
+    setRecordSaveStatus("idle");
+    setRecordSaveError(null);
+  }
+
+  async function savePartnerValues(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const latest = money.latestRecord;
-    if (!latest) return;
-
-    setSliceSaveStatus("saving");
-    setSliceSaveError(null);
+    setPartnerSaveStatus("saving");
+    setPartnerSaveError(null);
 
     try {
-      const visibleInputs = MONEY_SLICE_INPUTS.filter((input) => isMoneySliceFieldVisible(input.key, money, latest));
-      const nextValues: MoneySliceUpdateInput = {
-        changedField: sliceChangedField ?? undefined
+      const nextValues = {
+        partnerMoney: parseMoneyInput(partnerForm.partnerMoney, "Деньги партнера"),
+        partnerCreditCardDebt: parseMoneyInput(partnerForm.partnerCreditCardDebt, "Долг партнера")
       };
-
-      for (const input of visibleInputs) {
-        nextValues[input.key] = parseMoneyInput(sliceForm[input.key], input.label, {
-          allowNegative: input.key === "freeAmount"
-        });
-      }
-
-      if (sliceForm.rentPaid) {
-        nextValues.rentPaid = sliceForm.rentPaid === "yes";
-      }
-
-      await updateMoneySliceData(nextValues);
-      await onMoneyUpdated?.();
-      setSliceSaveStatus("saved");
+      await updatePartnerMoneyData(nextValues);
+      await onMoneyDataUpdated?.();
+      setPartnerSaveStatus("saved");
     } catch (error) {
-      setSliceSaveStatus("idle");
-      setSliceSaveError(error instanceof Error ? error.message : String(error));
+      setPartnerSaveStatus("idle");
+      setPartnerSaveError(error instanceof Error ? error.message : String(error));
     }
   }
+
+  async function saveMoneyRecord(record: MoneyRecord) {
+    setRecordSaveStatus("saving");
+    setRecordSaveError(null);
+
+    try {
+      if (!recordForm.dateIso) throw new Error("Дата: укажите дату.");
+      await updateMoneyRecordData(record.rowId, {
+        dateIso: recordForm.dateIso,
+        totalAmount: parseOptionalMoneyInput(recordForm.totalAmount, "Общая сумма"),
+        freeAmount: parseOptionalMoneyInput(recordForm.freeAmount, "Свободная сумма"),
+        investmentAmount: parseOptionalMoneyInput(recordForm.investmentAmount, "Инвестиции"),
+        reserveAmount: parseOptionalMoneyInput(recordForm.reserveAmount, "Несгораемая сумма"),
+        creditCardDebt: parseOptionalMoneyInput(recordForm.creditCardDebt, "Долг по кредиткам"),
+        rentPaid: parseRentPaidFormValue(recordForm.rentPaid)
+      });
+      await onMoneyDataUpdated?.();
+      setEditingRecordId(null);
+      setRecordSaveStatus("saved");
+    } catch (error) {
+      setRecordSaveStatus("idle");
+      setRecordSaveError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const partnerFormChanged =
+    partnerForm.partnerMoney !== inputValue(money.partnerMoney) ||
+    partnerForm.partnerCreditCardDebt !== inputValue(money.partnerCreditCardDebt);
 
   if (money.status !== "ready") {
     return (
@@ -356,7 +380,6 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
     );
   }
 
-  const latest = money.latestRecord;
   if (!latest) {
     return (
       <section className="panel money-empty-panel">
@@ -369,17 +392,12 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
     );
   }
 
-  const compositionSegments = buildCompositionSegments(money, latest);
+  const activeRecord = selectedRecord ?? latest;
+  const visibleRows = showAllRecords ? [...money.records].reverse() : money.records.slice(-6).reverse();
+  const compositionSegments = buildCompositionSegments(money, activeRecord);
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
-  const latestRows = money.records.slice(-6).reverse();
   const preSync = money.sync.preSync;
   const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
-  const initialSliceForm = moneySliceFormFromData(money);
-  const visibleSliceInputs = MONEY_SLICE_INPUTS.filter((input) => isMoneySliceFieldVisible(input.key, money, latest));
-  const canEditRent = latest.rentPaid !== null;
-  const sliceFormChanged =
-    visibleSliceInputs.some((input) => sliceForm[input.key] !== initialSliceForm[input.key]) ||
-    (canEditRent && sliceForm.rentPaid !== initialSliceForm.rentPaid);
 
   return (
     <>
@@ -427,7 +445,11 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
             </div>
           </div>
 
-          <MoneyTrendChart records={money.records} />
+          <MoneyTrendChart
+            records={money.records}
+            selectedRecordId={activeRecord.rowId}
+            onRecordSelect={(record) => selectMoneyRecord(record, { revealAll: true, scroll: true })}
+          />
 
           <div className="legend-row money-legend">
             {MONEY_SERIES.map((series) => (
@@ -442,16 +464,18 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
           <div className="panel-heading compact">
             <div>
               <h2>Срез</h2>
-              <span>{formatDateShort(latest.dateIso)}</span>
+              <span>
+                {formatDateShort(activeRecord.dateIso)} · строка #{activeRecord.rowId}
+              </span>
             </div>
             <div className="money-date-badge">
               <Banknote size={18} />
-              <strong>{formatMoney(latest.freeAmount)}</strong>
+              <strong>{formatMoney(activeRecord.freeAmount)}</strong>
             </div>
           </div>
 
           <div className="money-composition">
-            <div className="composition-track" aria-label="Распределение последнего среза">
+            <div className="composition-track" aria-label="Распределение выбранного среза">
               {compositionSegments.map((segment) => (
                 <span
                   key={segment.label}
@@ -478,62 +502,50 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
             </div>
           </div>
 
-          <form className="money-slice-form" onSubmit={saveSliceValues}>
-            <div className="money-slice-heading">
-              <strong>Редактировать срез</strong>
+          <form className="money-partner-form" onSubmit={savePartnerValues}>
+            <div className="money-partner-heading">
+              <strong>Ручные суммы партнера</strong>
               <span>Сохраняются в Money.md</span>
             </div>
-            <div className="money-slice-fields">
-              {visibleSliceInputs.map((input) => (
-                <label className="money-input-control" key={input.key}>
-                  <span>{input.label}</span>
-                  <span className="money-input-shell">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={sliceForm[input.key]}
-                      onChange={(event) => updateSliceAmountField(input.key, event.target.value)}
-                      aria-label={input.label}
-                    />
-                    <span>₽</span>
-                  </span>
-                </label>
-              ))}
+            <div className="money-partner-fields">
+              <label className="money-input-control">
+                <span>Деньги партнера</span>
+                <span className="money-input-shell">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={partnerForm.partnerMoney}
+                    onChange={(event) => updatePartnerField("partnerMoney", event.target.value)}
+                    aria-label="Деньги партнера"
+                  />
+                  <span>₽</span>
+                </span>
+              </label>
+              <label className="money-input-control">
+                <span>Долг партнера</span>
+                <span className="money-input-shell">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={partnerForm.partnerCreditCardDebt}
+                    onChange={(event) => updatePartnerField("partnerCreditCardDebt", event.target.value)}
+                    aria-label="Долг партнера"
+                  />
+                  <span>₽</span>
+                </span>
+              </label>
             </div>
-            {canEditRent ? (
-              <fieldset className="money-rent-toggle">
-                <legend>Аренда заплачена</legend>
-                <div>
-                  <button
-                    type="button"
-                    className={sliceForm.rentPaid === "yes" ? "active" : ""}
-                    aria-pressed={sliceForm.rentPaid === "yes"}
-                    onClick={() => updateSliceRentPaid("yes")}
-                  >
-                    Да
-                  </button>
-                  <button
-                    type="button"
-                    className={sliceForm.rentPaid === "no" ? "active" : ""}
-                    aria-pressed={sliceForm.rentPaid === "no"}
-                    onClick={() => updateSliceRentPaid("no")}
-                  >
-                    Нет
-                  </button>
-                </div>
-              </fieldset>
-            ) : null}
-            <div className="money-slice-actions">
-              <span className={`money-slice-status ${sliceSaveError ? "error" : ""}`} role="status">
-                {sliceSaveError ?? (sliceSaveStatus === "saved" ? "Сохранено" : "")}
+            <div className="money-partner-actions">
+              <span className={`money-partner-status ${partnerSaveError ? "error" : ""}`} role="status">
+                {partnerSaveError ?? (partnerSaveStatus === "saved" ? "Сохранено" : "")}
               </span>
               <button
                 className="money-save-button"
                 type="submit"
-                disabled={sliceSaveStatus === "saving" || !sliceFormChanged}
+                disabled={partnerSaveStatus === "saving" || !partnerFormChanged}
               >
                 <Save size={15} />
-                <span>{sliceSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
+                <span>{partnerSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
               </button>
             </div>
           </form>
@@ -596,17 +608,35 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
         <article className="panel money-history-panel">
           <div className="panel-heading compact">
             <div>
-              <h2>Последние срезы</h2>
+              <h2>{showAllRecords ? "Все срезы" : "Последние срезы"}</h2>
               <span>
-                Обновлено {formatDateTime(money.sourceMtimeMs ? new Date(money.sourceMtimeMs).toISOString() : null)}
+                Показано {visibleRows.length} из {money.records.length} · обновлено{" "}
+                {formatDateTime(money.sourceMtimeMs ? new Date(money.sourceMtimeMs).toISOString() : null)}
               </span>
             </div>
+            <button
+              className="money-secondary-button"
+              type="button"
+              onClick={() => {
+                if (showAllRecords) {
+                  setEditingRecordId(null);
+                  setRecordSaveStatus("idle");
+                  setRecordSaveError(null);
+                }
+                setShowAllRecords((current) => !current);
+              }}
+              aria-expanded={showAllRecords}
+            >
+              {showAllRecords ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              <span>{showAllRecords ? "Свернуть" : "Все срезы"}</span>
+            </button>
           </div>
 
           <div className="money-table-wrap">
             <table className="money-table">
               <thead>
                 <tr>
+                  <th>Действия</th>
                   <th>Дата</th>
                   <th>Общая</th>
                   <th>Свободная</th>
@@ -617,20 +647,210 @@ export function MoneyDashboard({ money, onMoneyUpdated }: MoneyDashboardProps) {
                 </tr>
               </thead>
               <tbody>
-                {latestRows.map((record) => (
-                  <tr key={record.rowId}>
-                    <td>{record.date}</td>
-                    <td>{formatMoney(record.totalAmount)}</td>
-                    <td>{formatMoney(record.freeAmount)}</td>
-                    <td>{formatMoney(record.investmentAmount)}</td>
-                    <td>{formatMoney(record.reserveAmount)}</td>
-                    <td>{formatMoney(record.creditCardDebt)}</td>
-                    <td>{rentPaidLabel(record.rentPaid)}</td>
-                  </tr>
-                ))}
+                {visibleRows.map((record) => {
+                  const isSelected = record.rowId === activeRecord.rowId;
+                  const isEditing = record.rowId === editingRecordId;
+                  const rowFormChanged = isEditing && formChanged(recordForm, moneyRecordFormValue(record));
+                  const rowClassName = [isSelected ? "selected" : "", isEditing ? "editing" : ""]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <tr
+                      key={record.rowId}
+                      ref={isSelected ? selectedRecordRef : null}
+                      className={rowClassName || undefined}
+                      onClick={() => {
+                        if (!isEditing) selectMoneyRecord(record);
+                      }}
+                    >
+                      <td>
+                        <div className="money-table-actions">
+                          {isEditing ? (
+                            <>
+                              <button
+                                className="money-icon-action"
+                                type="button"
+                                title="Сбросить"
+                                aria-label={`Сбросить срез ${record.date}`}
+                                disabled={recordSaveStatus === "saving"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setRecordForm(moneyRecordFormValue(record));
+                                  setEditingRecordId(null);
+                                  setRecordSaveStatus("idle");
+                                  setRecordSaveError(null);
+                                }}
+                              >
+                                <X size={15} />
+                              </button>
+                              <button
+                                className="money-icon-action primary"
+                                type="button"
+                                title="Сохранить"
+                                aria-label={`Сохранить срез ${record.date}`}
+                                disabled={recordSaveStatus === "saving" || !rowFormChanged}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  saveMoneyRecord(record);
+                                }}
+                              >
+                                <Save size={15} />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="money-icon-action"
+                              type="button"
+                              title="Редактировать"
+                              aria-label={`Редактировать срез ${record.date}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                editMoneyRecord(record);
+                              }}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="date"
+                              value={recordForm.dateIso}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("dateIso", event.target.value)}
+                              aria-label={`Дата среза ${record.date}`}
+                            />
+                          </span>
+                        ) : (
+                          <button
+                            className="money-row-button"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectMoneyRecord(record);
+                            }}
+                          >
+                            <span>{record.date}</span>
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.totalAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("totalAmount", event.target.value)}
+                              aria-label={`Общая сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.totalAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.freeAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("freeAmount", event.target.value)}
+                              aria-label={`Свободная сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.freeAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.investmentAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("investmentAmount", event.target.value)}
+                              aria-label={`Инвестиции среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.investmentAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.reserveAmount}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("reserveAmount", event.target.value)}
+                              aria-label={`Несгораемая сумма среза ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.reserveAmount)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={recordForm.creditCardDebt}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("creditCardDebt", event.target.value)}
+                              aria-label={`Долг по кредиткам в срезе ${record.date}`}
+                            />
+                            <span>₽</span>
+                          </span>
+                        ) : (
+                          formatMoney(record.creditCardDebt)
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <span className="money-table-input-shell money-table-select-shell">
+                            <select
+                              value={recordForm.rentPaid}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => updateRecordField("rentPaid", event.target.value as RentPaidFormValue)}
+                              aria-label={`Аренда заплачена в срезе ${record.date}`}
+                            >
+                              <option value="unknown">—</option>
+                              <option value="yes">да</option>
+                              <option value="no">нет</option>
+                            </select>
+                          </span>
+                        ) : (
+                          rentPaidLabel(record.rentPaid)
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          {recordSaveError || recordSaveStatus === "saved" ? (
+            <div className={`money-table-status ${recordSaveError ? "error" : ""}`} role="status">
+              {recordSaveError ?? "Срез сохранен"}
+            </div>
+          ) : null}
         </article>
       </section>
     </>

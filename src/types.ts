@@ -73,6 +73,16 @@ export type MoneyRecord = {
   rentPaid: boolean | null;
 };
 
+export type MoneyRecordUpdate = {
+  dateIso: string;
+  totalAmount: number | null;
+  freeAmount: number | null;
+  investmentAmount: number | null;
+  reserveAmount: number | null;
+  creditCardDebt: number | null;
+  rentPaid: boolean | null;
+};
+
 export type MoneyEvent = {
   rowId: number;
   bank: string;

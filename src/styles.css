@@ -909,6 +909,17 @@ select:focus-visible {
   min-height: 350px;
 }
 
+.money-chart-point {
+  cursor: pointer;
+  transition: r 160ms ease, stroke-width 160ms ease;
+}
+
+.money-chart-point:hover,
+.money-chart-point:focus-visible,
+.money-chart-point.selected {
+  filter: drop-shadow(0 2px 5px rgba(30, 64, 175, 0.24));
+}
+
 .axis-label {
   fill: #64748b;
   font-size: 12px;
@@ -1187,8 +1198,7 @@ select:focus-visible {
   margin-top: 14px;
 }
 
-.money-partner-form,
-.money-slice-form {
+.money-partner-form {
   display: grid;
   gap: 11px;
   margin-top: 14px;
@@ -1196,28 +1206,24 @@ select:focus-visible {
   border-top: 1px solid var(--line);
 }
 
-.money-partner-heading,
-.money-slice-heading {
+.money-partner-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
 }
 
-.money-partner-heading strong,
-.money-slice-heading strong {
+.money-partner-heading strong {
   color: var(--ink);
   font-size: 14px;
 }
 
-.money-partner-heading span,
-.money-slice-heading span {
+.money-partner-heading span {
   color: var(--muted);
   font-size: 12px;
 }
 
-.money-partner-fields,
-.money-slice-fields {
+.money-partner-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -1259,70 +1265,37 @@ select:focus-visible {
   font: 700 14px/1 "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.money-input-shell select {
+  min-width: 0;
+  width: 100%;
+  height: 38px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 700 14px/1 "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
 .money-input-shell > span {
   flex: 0 0 auto;
   font-size: 12px;
 }
 
-.money-rent-toggle {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.money-rent-toggle legend {
-  padding: 0;
-}
-
-.money-rent-toggle div {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.money-rent-toggle button {
-  min-height: 32px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-weight: 800;
-  cursor: pointer;
-  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
-}
-
-.money-rent-toggle button.active {
-  background: #fff;
-  color: var(--primary);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
-}
-
-.money-partner-actions,
-.money-slice-actions {
+.money-partner-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.money-partner-status,
-.money-slice-status {
+.money-partner-status {
   min-width: 0;
   color: var(--green);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 
-.money-partner-status.error,
-.money-slice-status.error {
+.money-partner-status.error {
   color: #991b1b;
 }
 
@@ -1341,20 +1314,40 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.money-save-button:disabled {
+.money-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-blue);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.money-save-button:disabled,
+.money-secondary-button:disabled {
   cursor: default;
   opacity: 0.55;
 }
 
 .money-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
 .money-events-panel,
 .money-history-panel {
   padding: 20px;
+}
+
+.money-history-panel {
+  order: -1;
 }
 
 .money-events-panel .panel-heading svg {
@@ -1410,14 +1403,14 @@ select:focus-visible {
 
 .money-table {
   width: 100%;
-  min-width: 700px;
+  min-width: 760px;
   border-collapse: collapse;
   font-size: 14px;
 }
 
 .money-table th,
 .money-table td {
-  padding: 10px 12px;
+  padding: 8px 6px;
   border-bottom: 1px solid var(--line);
   text-align: right;
   white-space: nowrap;
@@ -1425,6 +1418,12 @@ select:focus-visible {
 
 .money-table th:first-child,
 .money-table td:first-child {
+  width: 76px;
+  text-align: center;
+}
+
+.money-table th:nth-child(2),
+.money-table td:nth-child(2) {
   text-align: left;
 }
 
@@ -1436,6 +1435,143 @@ select:focus-visible {
 .money-table td {
   font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 600;
+}
+
+.money-table tbody tr {
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.money-table tbody tr:hover {
+  background: #f8fbff;
+}
+
+.money-table tbody tr.selected {
+  background: #eff6ff;
+}
+
+.money-table tbody tr.editing {
+  background: #f8fbff;
+}
+
+.money-row-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-blue);
+  font: inherit;
+  cursor: pointer;
+}
+
+.money-row-button svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.money-row-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.money-table-input-shell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  width: 92px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.money-table td:nth-child(2) .money-table-input-shell {
+  width: 122px;
+}
+
+.money-table-input-shell:focus-within {
+  border-color: rgba(30, 64, 175, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.money-table-input-shell input,
+.money-table-input-shell select {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: right;
+  font: 700 13px/1 "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.money-table-input-shell input[type="date"] {
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: left;
+}
+
+.money-table-input-shell > span {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.money-table-select-shell {
+  width: 68px;
+}
+
+.money-table-select-shell select {
+  font-family: "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  text-align: left;
+}
+
+.money-table-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.money-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-blue);
+  cursor: pointer;
+}
+
+.money-icon-action.primary {
+  border-color: rgba(30, 64, 175, 0.4);
+  background: var(--primary);
+  color: #fff;
+}
+
+.money-icon-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.money-table-status {
+  margin-top: 10px;
+  color: var(--green);
+  font-size: 12px;
+}
+
+.money-table-status.error {
+  color: #991b1b;
 }
 
 .money-table tbody tr:last-child td {
@@ -2087,15 +2223,12 @@ select:focus-visible {
   }
 
   .money-partner-heading,
-  .money-partner-actions,
-  .money-slice-heading,
-  .money-slice-actions {
+  .money-partner-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .money-partner-fields,
-  .money-slice-fields {
+  .money-partner-fields {
     grid-template-columns: 1fr;
   }
 

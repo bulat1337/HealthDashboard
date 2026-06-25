@@ -513,6 +513,44 @@ function parseMoneyDate(date: string | undefined): string | null {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function parseIsoDate(value: string): string | null {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function parseMoneyDateInput(value: unknown, label = "Дата") {
+  if (typeof value !== "string") {
+    throw new Error(`${label}: укажите дату.`);
+  }
+
+  const trimmed = value.trim();
+  const isoDate = parseIsoDate(trimmed) ?? parseMoneyDate(trimmed);
+  if (!isoDate) {
+    throw new Error(`${label}: используйте формат YYYY-MM-DD или ДД.ММ.ГГ.`);
+  }
+
+  return isoDate;
+}
+
+function formatMoneyDateIso(dateIso: string) {
+  const [year, month, day] = dateIso.split("-");
+  return `${day}.${month}.${year.slice(-2)}`;
+}
+
 function daysFromToday(dateIso: string): number {
   const [year, month, day] = dateIso.split("-").map(Number);
   const eventDate = Date.UTC(year, month - 1, day);
@@ -1260,68 +1298,33 @@ type MoneyPartnerUpdate = {
   partnerCreditCardDebt?: number;
 };
 
-const MONEY_SLICE_AMOUNT_FIELDS = [
-  "totalAmount",
-  "freeAmount",
-  "investmentAmount",
-  "reserveAmount",
-  "creditCardDebt",
-  "partnerMoney",
-  "partnerCreditCardDebt"
-] as const;
+type MoneyRecordAmountKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
 
-type MoneySliceAmountField = (typeof MONEY_SLICE_AMOUNT_FIELDS)[number];
-type MoneySliceEditableField = MoneySliceAmountField | "rentPaid";
-type MoneySliceUpdate = Partial<Record<MoneySliceAmountField, number>> & {
-  rentPaid?: boolean;
+type MoneyRecordUpdate = Partial<Record<MoneyRecordAmountKey, number | null>> & {
+  dateIso?: string;
+  rentPaid?: boolean | null;
 };
 
-const MONEY_SLICE_AMOUNT_LABELS: Record<MoneySliceAmountField, string> = {
-  totalAmount: "Общая сумма",
-  freeAmount: "Свободная сумма",
-  investmentAmount: "Инвестиции",
-  reserveAmount: "Несгораемая сумма",
-  creditCardDebt: "Долг по кредиткам",
-  partnerMoney: "Деньги партнера",
-  partnerCreditCardDebt: "Долг партнера"
-};
-
-const MONEY_SLICE_ROW_COLUMN_LABELS = {
+const MONEY_RECORD_AMOUNT_LABELS: Record<MoneyRecordAmountKey, string> = {
   totalAmount: "Общая сумма",
   freeAmount: "Свободная сумма",
   investmentAmount: "Инвестиции",
   reserveAmount: "Несгораемая сумма",
   creditCardDebt: "Долг по кредиткам"
-} as const;
+};
 
-const MONEY_SLICE_EDITABLE_FIELDS = new Set<string>([...MONEY_SLICE_AMOUNT_FIELDS, "rentPaid"]);
-
-function normalizeMoneyAmountInput(value: unknown, label: string, options: { allowNegative?: boolean } = {}) {
+function normalizeMoneyPartnerInput(value: unknown, label: string) {
   const amount = typeof value === "number" ? value : parseMoneyAmount(typeof value === "string" ? value : undefined);
   if (amount === null || !Number.isFinite(amount)) {
     throw new Error(`${label}: укажите число в рублях.`);
   }
-  if (!options.allowNegative && amount < 0) {
+  if (amount < 0) {
     throw new Error(`${label}: значение должно быть 0 или больше.`);
   }
-  if (Math.abs(amount) > 1_000_000_000_000) {
+  if (amount > 1_000_000_000_000) {
     throw new Error(`${label}: значение слишком большое.`);
   }
   return Math.round(amount);
-}
-
-function normalizeMoneyPartnerInput(value: unknown, label: string) {
-  return normalizeMoneyAmountInput(value, label);
-}
-
-function normalizeMoneyRentPaidInput(value: unknown) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["да", "yes", "true", "1"].includes(normalized)) return true;
-    if (["нет", "no", "false", "0"].includes(normalized)) return false;
-  }
-  throw new Error("Аренда заплачена: укажите да или нет.");
 }
 
 function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
@@ -1348,25 +1351,51 @@ function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
   return update;
 }
 
-function inferMoneySliceChangedField(update: MoneySliceUpdate): MoneySliceEditableField | undefined {
-  const fields: MoneySliceEditableField[] = MONEY_SLICE_AMOUNT_FIELDS.filter((field) => update[field] !== undefined);
-  if (update.rentPaid !== undefined) fields.push("rentPaid");
-  return fields.length === 1 ? fields[0] : undefined;
+function normalizeMoneyRecordAmountInput(value: unknown, label: string): number | null {
+  if (value === null) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+
+  const amount = typeof value === "number" ? value : parseMoneyAmount(typeof value === "string" ? value : undefined);
+  if (amount === null || !Number.isFinite(amount)) {
+    throw new Error(`${label}: укажите число в рублях или оставьте поле пустым.`);
+  }
+  if (Math.abs(amount) > 1_000_000_000_000) {
+    throw new Error(`${label}: значение слишком большое.`);
+  }
+  return Math.round(amount);
 }
 
-function moneySliceUpdateFromBody(body: unknown) {
+function normalizeMoneyRentPaidInput(value: unknown): boolean | null {
+  if (value === null) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") {
+    throw new Error("Аренда: выберите да, нет или пусто.");
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "-" || normalized === "—") return null;
+  if (["да", "yes", "true", "1"].includes(normalized)) return true;
+  if (["нет", "no", "false", "0"].includes(normalized)) return false;
+  throw new Error("Аренда: выберите да, нет или пусто.");
+}
+
+function moneyRecordUpdateFromBody(body: unknown): MoneyRecordUpdate {
   if (!body || typeof body !== "object") {
     throw new Error("Тело запроса должно быть JSON-объектом.");
   }
 
-  const candidate = body as Partial<Record<MoneySliceAmountField | "changedField" | "rentPaid", unknown>>;
-  const update: MoneySliceUpdate = {};
+  const candidate = body as Record<string, unknown>;
+  const update: MoneyRecordUpdate = {};
 
-  for (const field of MONEY_SLICE_AMOUNT_FIELDS) {
-    if (field in candidate) {
-      update[field] = normalizeMoneyAmountInput(candidate[field], MONEY_SLICE_AMOUNT_LABELS[field], {
-        allowNegative: field === "freeAmount"
-      });
+  if ("dateIso" in candidate) {
+    update.dateIso = parseMoneyDateInput(candidate.dateIso);
+  } else if ("date" in candidate) {
+    update.dateIso = parseMoneyDateInput(candidate.date);
+  }
+
+  for (const key of Object.keys(MONEY_RECORD_AMOUNT_LABELS) as MoneyRecordAmountKey[]) {
+    if (key in candidate) {
+      update[key] = normalizeMoneyRecordAmountInput(candidate[key], MONEY_RECORD_AMOUNT_LABELS[key]);
     }
   }
 
@@ -1374,23 +1403,11 @@ function moneySliceUpdateFromBody(body: unknown) {
     update.rentPaid = normalizeMoneyRentPaidInput(candidate.rentPaid);
   }
 
-  const changedField =
-    typeof candidate.changedField === "string" && MONEY_SLICE_EDITABLE_FIELDS.has(candidate.changedField)
-      ? (candidate.changedField as MoneySliceEditableField)
-      : undefined;
-
-  if ("changedField" in candidate && candidate.changedField !== undefined && changedField === undefined) {
-    throw new Error("Поле changedField содержит неизвестное имя.");
-  }
-
-  if (inferMoneySliceChangedField(update) === undefined && Object.keys(update).length === 0) {
+  if (Object.keys(update).length === 0) {
     throw new Error("Передайте хотя бы одно поле среза.");
   }
 
-  return {
-    update,
-    changedField: changedField ?? inferMoneySliceChangedField(update)
-  };
+  return update;
 }
 
 function replaceLabeledMoneyAmount(text: string, labels: string[], value: number) {
@@ -1412,6 +1429,115 @@ function replaceLabeledMoneyAmount(text: string, labels: string[], value: number
 
 function renderMarkdownTableRow(cells: string[], widths: number[]) {
   return `| ${cells.map((cell, index) => cell.padEnd(widths[index] ?? 0)).join(" | ")} |`;
+}
+
+function formatNullableMoneyAmount(value: number | null) {
+  return value === null ? "—" : formatMoneyAmount(value);
+}
+
+function formatMoneyRentPaid(value: boolean | null) {
+  if (value === true) return "да";
+  if (value === false) return "нет";
+  return "—";
+}
+
+function tableColumnWidth(parsedRows: { lineIndex: number; cells: string[] }[], nextCells: string[], nextLineIndex: number) {
+  const tableCells = parsedRows
+    .filter((row) => !isMarkdownSeparator(row.cells))
+    .map((row) => (row.lineIndex === nextLineIndex ? nextCells : row.cells));
+  const columnCount = Math.max(...tableCells.map((cells) => cells.length), nextCells.length);
+  return Array.from({ length: columnCount }, (_, columnIndex) =>
+    Math.max(...tableCells.map((cells) => cells[columnIndex]?.length ?? 0))
+  );
+}
+
+function updateMoneyRecordText(text: string, rowId: number, update: MoneyRecordUpdate) {
+  if (!Number.isInteger(rowId) || rowId < 1) {
+    throw new Error("rowId должен быть положительным целым числом.");
+  }
+
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].trim().startsWith("|")) {
+      index += 1;
+      continue;
+    }
+
+    const blockStart = index;
+    while (index < lines.length && lines[index].trim().startsWith("|")) index += 1;
+
+    const parsedRows = lines
+      .slice(blockStart, index)
+      .map((line, offset) => ({
+        lineIndex: blockStart + offset,
+        cells: parseMarkdownTableLine(line)
+      }))
+      .filter((row) => row.cells.length > 0);
+
+    if (parsedRows.length < 2) continue;
+
+    const headers = parsedRows[0].cells;
+    const dateColumn = findColumn(headers, "Дата");
+    const totalColumn = findColumn(headers, "Общая сумма");
+    if (dateColumn === -1 || totalColumn === -1) continue;
+
+    const columns: Record<MoneyRecordAmountKey, number> = {
+      totalAmount: totalColumn,
+      freeAmount: findColumn(headers, "Свободная сумма"),
+      investmentAmount: findColumn(headers, "Инвестиции"),
+      reserveAmount: findColumn(headers, "Несгораемая сумма"),
+      creditCardDebt: findColumn(headers, "Долг по кредиткам")
+    };
+    const rentPaidColumn = findColumn(headers, "Аренда заплачена");
+    const dataRows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row.cells));
+    let recordIndex = 0;
+
+    for (const row of dataRows) {
+      if (!parseMoneyDate(row.cells[dateColumn])) continue;
+      recordIndex += 1;
+      if (recordIndex !== rowId) continue;
+
+      const nextCells = [...row.cells];
+      if (update.dateIso !== undefined) {
+        nextCells[dateColumn] = formatMoneyDateIso(update.dateIso);
+      }
+
+      for (const key of Object.keys(MONEY_RECORD_AMOUNT_LABELS) as MoneyRecordAmountKey[]) {
+        const value = update[key];
+        if (value === undefined) continue;
+        const column = columns[key];
+        if (column === -1) {
+          if (value === null) continue;
+          throw new Error(`Money.md is missing editable column: ${MONEY_RECORD_AMOUNT_LABELS[key]}.`);
+        }
+        nextCells[column] = formatNullableMoneyAmount(value);
+      }
+
+      if (update.rentPaid !== undefined) {
+        if (rentPaidColumn === -1) {
+          if (update.rentPaid === null) {
+            lines[row.lineIndex] = renderMarkdownTableRow(
+              nextCells,
+              tableColumnWidth(parsedRows, nextCells, row.lineIndex)
+            );
+            return lines.join(newline);
+          }
+          throw new Error("Money.md is missing editable column: Аренда заплачена.");
+        }
+        nextCells[rentPaidColumn] = formatMoneyRentPaid(update.rentPaid);
+      }
+
+      lines[row.lineIndex] = renderMarkdownTableRow(nextCells, tableColumnWidth(parsedRows, nextCells, row.lineIndex));
+      return lines.join(newline);
+    }
+
+    throw new Error(`Срез #${rowId} не найден в таблице денег.`);
+  }
+
+  throw new Error("Money table with columns Дата and Общая сумма was not found.");
 }
 
 function updateLatestMoneyRowForPartnerValues(
@@ -1518,178 +1644,6 @@ function updateMoneyPartnerValuesText(text: string, update: MoneyPartnerUpdate) 
     text: nextText,
     values: nextValues
   };
-}
-
-function readRequiredMoneyRowAmount(cells: string[], column: number, label: string) {
-  if (column === -1) {
-    throw new Error(`Money table is missing column ${label}.`);
-  }
-
-  const amount = parseMoneyAmount(cells[column]);
-  if (amount === null) {
-    throw new Error(`Latest Money.md row is missing readable ${label}.`);
-  }
-  return amount;
-}
-
-function readOptionalMoneyRowAmount(cells: string[], column: number) {
-  if (column === -1) return 0;
-  return parseMoneyAmount(cells[column]) ?? 0;
-}
-
-function setMoneyRowAmount(cells: string[], column: number, label: string, value: number, shouldWrite: boolean) {
-  if (!shouldWrite && column === -1) return;
-  if (column === -1) {
-    throw new Error(`Money table is missing column ${label}.`);
-  }
-  cells[column] = formatMoneyAmount(value);
-}
-
-function moneySliceUnpaidRent(rentPaid: boolean | null, rentMonthly: number) {
-  return rentPaid === false ? rentMonthly : 0;
-}
-
-function updateLatestMoneySliceText(
-  text: string,
-  update: MoneySliceUpdate,
-  changedField?: MoneySliceEditableField
-) {
-  const oldPartnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS) ?? 0;
-  const oldPartnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS) ?? 0;
-  const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]) ?? 0;
-  const driver = changedField ?? inferMoneySliceChangedField(update);
-  const newline = text.includes("\r\n") ? "\r\n" : "\n";
-
-  let nextText = text;
-  if (update.partnerCreditCardDebt !== undefined) {
-    nextText = replaceLabeledMoneyAmount(
-      nextText,
-      MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS,
-      update.partnerCreditCardDebt
-    );
-  }
-  if (update.partnerMoney !== undefined) {
-    nextText = replaceLabeledMoneyAmount(nextText, MONEY_PARTNER_MONEY_LABELS, update.partnerMoney);
-  }
-
-  const lines = nextText.split(/\r?\n/);
-  let index = 0;
-
-  while (index < lines.length) {
-    if (!lines[index].trim().startsWith("|")) {
-      index += 1;
-      continue;
-    }
-
-    const blockStart = index;
-    while (index < lines.length && lines[index].trim().startsWith("|")) index += 1;
-
-    const parsedRows = lines
-      .slice(blockStart, index)
-      .map((line, offset) => ({
-        lineIndex: blockStart + offset,
-        cells: parseMarkdownTableLine(line)
-      }))
-      .filter((row) => row.cells.length > 0);
-
-    if (parsedRows.length < 2) continue;
-
-    const headers = parsedRows[0].cells;
-    const dateColumn = findColumn(headers, "Дата");
-    const totalColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount);
-    const freeColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount);
-    const investmentColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.investmentAmount);
-    const reserveColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.reserveAmount);
-    const debtColumn = findColumn(headers, MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt);
-    const rentPaidColumn = findColumn(headers, "Аренда заплачена");
-    if (dateColumn === -1 || totalColumn === -1 || freeColumn === -1) continue;
-
-    const dataRows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row.cells));
-    const latestRow = [...dataRows].reverse().find((row) => parseMoneyDate(row.cells[dateColumn]) !== null);
-    if (!latestRow) continue;
-
-    const oldCreditCardDebt = readOptionalMoneyRowAmount(latestRow.cells, debtColumn);
-    const oldRentPaid = rentPaidColumn === -1 ? null : parseRentPaid(latestRow.cells[rentPaidColumn]);
-    const nextValues = {
-      totalAmount:
-        update.totalAmount ??
-        readRequiredMoneyRowAmount(latestRow.cells, totalColumn, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount),
-      freeAmount:
-        update.freeAmount ??
-        readRequiredMoneyRowAmount(latestRow.cells, freeColumn, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount),
-      investmentAmount:
-        update.investmentAmount ?? readOptionalMoneyRowAmount(latestRow.cells, investmentColumn),
-      reserveAmount: update.reserveAmount ?? readOptionalMoneyRowAmount(latestRow.cells, reserveColumn),
-      creditCardDebt: update.creditCardDebt ?? oldCreditCardDebt,
-      rentPaid: update.rentPaid ?? oldRentPaid,
-      partnerMoney: update.partnerMoney ?? oldPartnerMoney,
-      partnerCreditCardDebt: update.partnerCreditCardDebt ?? oldPartnerCreditCardDebt
-    };
-
-    if (update.partnerCreditCardDebt !== undefined && update.creditCardDebt === undefined) {
-      if (debtColumn === -1) {
-        throw new Error(`Money table is missing column ${MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt}.`);
-      }
-      nextValues.creditCardDebt =
-        oldCreditCardDebt + update.partnerCreditCardDebt - oldPartnerCreditCardDebt;
-    }
-
-    const unpaidRent = moneySliceUnpaidRent(nextValues.rentPaid, rentMonthly);
-    const lockedAmount =
-      nextValues.reserveAmount + nextValues.creditCardDebt + nextValues.partnerMoney + unpaidRent;
-    if (driver === "freeAmount" || driver === "investmentAmount") {
-      nextValues.totalAmount =
-        nextValues.freeAmount + nextValues.investmentAmount + lockedAmount;
-    } else {
-      nextValues.freeAmount = nextValues.totalAmount - nextValues.investmentAmount - lockedAmount;
-    }
-
-    const nextCells = [...latestRow.cells];
-    setMoneyRowAmount(nextCells, totalColumn, MONEY_SLICE_ROW_COLUMN_LABELS.totalAmount, nextValues.totalAmount, true);
-    setMoneyRowAmount(nextCells, freeColumn, MONEY_SLICE_ROW_COLUMN_LABELS.freeAmount, nextValues.freeAmount, true);
-    setMoneyRowAmount(
-      nextCells,
-      investmentColumn,
-      MONEY_SLICE_ROW_COLUMN_LABELS.investmentAmount,
-      nextValues.investmentAmount,
-      investmentColumn !== -1 || update.investmentAmount !== undefined
-    );
-    setMoneyRowAmount(
-      nextCells,
-      reserveColumn,
-      MONEY_SLICE_ROW_COLUMN_LABELS.reserveAmount,
-      nextValues.reserveAmount,
-      reserveColumn !== -1 || update.reserveAmount !== undefined
-    );
-    setMoneyRowAmount(
-      nextCells,
-      debtColumn,
-      MONEY_SLICE_ROW_COLUMN_LABELS.creditCardDebt,
-      nextValues.creditCardDebt,
-      debtColumn !== -1 || update.creditCardDebt !== undefined || update.partnerCreditCardDebt !== undefined
-    );
-    if (nextValues.rentPaid !== null && (rentPaidColumn !== -1 || update.rentPaid !== undefined)) {
-      if (rentPaidColumn === -1) {
-        throw new Error("Money table is missing column Аренда заплачена.");
-      }
-      nextCells[rentPaidColumn] = nextValues.rentPaid ? "да" : "нет";
-    }
-
-    const tableCells = parsedRows
-      .filter((row) => !isMarkdownSeparator(row.cells))
-      .map((row) => (row.lineIndex === latestRow.lineIndex ? nextCells : row.cells));
-    const columnCount = Math.max(...tableCells.map((cells) => cells.length), nextCells.length);
-    const widths = Array.from({ length: columnCount }, (_, columnIndex) =>
-      Math.max(...tableCells.map((cells) => cells[columnIndex]?.length ?? 0))
-    );
-    lines[latestRow.lineIndex] = renderMarkdownTableRow(nextCells, widths);
-    return {
-      text: lines.join(newline),
-      values: nextValues
-    };
-  }
-
-  throw new Error("Money table with columns Дата, Общая сумма and Свободная сумма was not found.");
 }
 
 type MoneySyncTrigger = "manual" | "schedule";
@@ -2095,21 +2049,24 @@ app.patch("/api/money-data/partner", (request, response) => {
   }
 });
 
-app.patch("/api/money-data/slice", (request, response) => {
+app.patch("/api/money-data/records/:rowId", (request, response) => {
   try {
-    const { update, changedField } = moneySliceUpdateFromBody(request.body);
+    const rowId = Number(request.params.rowId);
+    const update = moneyRecordUpdateFromBody(request.body);
     const currentText = fs.readFileSync(MONEY_FILE, "utf8");
-    const result = updateLatestMoneySliceText(currentText, update, changedField);
+    const nextText = updateMoneyRecordText(currentText, rowId, update);
 
-    if (result.text !== currentText) {
-      fs.writeFileSync(MONEY_FILE, result.text, "utf8");
+    if (nextText !== currentText) {
+      fs.writeFileSync(MONEY_FILE, nextText, "utf8");
     }
 
     const data = refreshCache();
     const updatedAt = new Date().toISOString();
+    const record = data.money.records.find((moneyRecord) => moneyRecord.rowId === rowId) ?? null;
     broadcast({
       type: "money-data-updated",
-      event: "money-slice",
+      event: "money-record",
+      rowId,
       path: publicPath(MONEY_FILE),
       version: dataVersion,
       updatedAt
@@ -2119,8 +2076,8 @@ app.patch("/api/money-data/slice", (request, response) => {
       ok: true,
       version: dataVersion,
       updatedAt,
-      changedField,
-      values: result.values,
+      rowId,
+      record,
       money: data.money
     });
   } catch (error) {
