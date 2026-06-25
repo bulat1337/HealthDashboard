@@ -1599,7 +1599,7 @@ select:focus-visible {
   margin-bottom: 14px;
 }
 
-.sport-legend span {
+.sport-legend > span {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1612,11 +1612,32 @@ select:focus-visible {
   font-weight: 700;
 }
 
-.sport-legend i {
+.sport-legend i,
+.sport-legend-swatch-stack i {
   width: 10px;
   height: 10px;
   flex: 0 0 auto;
   border-radius: 999px;
+}
+
+.sport-legend .sport-legend-strength {
+  gap: 8px;
+}
+
+.sport-legend-strength small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sport-legend-swatch-stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sport-legend-swatch-stack i + i {
+  margin-left: -3px;
+  box-shadow: 0 0 0 2px #fbfdff;
 }
 
 .sport-weekdays,
@@ -1722,7 +1743,8 @@ select:focus-visible {
   gap: 10px;
 }
 
-.sport-activity-actions button {
+.sport-activity-action,
+.sport-strength-toggle {
   --activity-color: var(--primary);
   min-width: 0;
   min-height: 48px;
@@ -1742,29 +1764,99 @@ select:focus-visible {
     background-color 200ms ease;
 }
 
-.sport-activity-actions button:hover {
+.sport-activity-action:hover,
+.sport-strength-toggle:hover {
   border-color: var(--line-strong);
   background: #fbfdff;
 }
 
-.sport-activity-actions button.active {
+.sport-activity-action.active,
+.sport-strength-toggle.active {
   border-color: var(--activity-color);
   background: #fbfdff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
 }
 
-.sport-activity-actions button:disabled {
+.sport-activity-action:disabled,
+.sport-strength-toggle:disabled,
+.sport-strength-variants button:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-.sport-activity-actions button svg:first-child {
+.sport-activity-action svg:first-child,
+.sport-strength-toggle svg:first-child {
   color: var(--activity-color);
 }
 
-.sport-activity-actions button span {
+.sport-activity-action span {
   min-width: 0;
   font-weight: 700;
+}
+
+.sport-strength-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sport-strength-label {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.sport-strength-label strong {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.1;
+}
+
+.sport-strength-label small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.sport-strength-variants {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-left: 42px;
+}
+
+.sport-strength-variants button {
+  --activity-color: #f59e0b;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.sport-strength-variants button:hover {
+  border-color: var(--line-strong);
+  background: #fbfdff;
+}
+
+.sport-strength-variants button.active {
+  border-color: var(--activity-color);
+  color: var(--ink);
+  background: #fffaf2;
+  box-shadow: inset 0 -3px 0 var(--activity-color);
 }
 
 .sport-day-summary {

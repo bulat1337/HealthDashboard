@@ -59,11 +59,20 @@ const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
 };
 
 const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
-  "strength_lower",
+  "strength_whole",
   "strength_upper",
-  "strength_whole"
+  "strength_lower",
 ];
 const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KEYS);
+const DEFAULT_STRENGTH_ACTIVITY_KEY: SportActivityKey = "strength_whole";
+const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
+  run: "Бег",
+  pilates: "Пилатес",
+  strength_lower: "Lower body",
+  strength_upper: "Upper body",
+  strength_whole: "Whole body",
+  cycling: "Велотренировка"
+};
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -203,6 +212,14 @@ function sortActivitiesForUser(user: SportUser, activities: SportActivityKey[]) 
   return user.activityTypes.filter((activity) => selected.has(activity));
 }
 
+function getStrengthActivity(activities: SportActivityKey[]) {
+  return activities.find((activity) => STRENGTH_ACTIVITY_KEY_SET.has(activity)) ?? null;
+}
+
+function withoutStrengthActivities(activities: SportActivityKey[]) {
+  return activities.filter((activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity));
+}
+
 function streakStatus(stats: SportStats) {
   if (stats.todayDone) return "сегодня закрыт";
   if (stats.currentStreak > 0) return "ждет отметку сегодня";
@@ -267,6 +284,18 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     selectedUser?.activityTypes
       .map((activityKey) => catalogByKey.get(activityKey))
       .filter((activity): activity is SportActivityCatalogEntry => Boolean(activity)) ?? [];
+  const availableStrengthActivities = STRENGTH_ACTIVITY_KEYS.map((activityKey) =>
+    availableActivities.find((activity) => activity.key === activityKey)
+  ).filter((activity): activity is SportActivityCatalogEntry => Boolean(activity));
+  const availablePrimaryActivities = availableActivities.filter(
+    (activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity.key)
+  );
+  const selectedStrengthActivity = getStrengthActivity(selectedDateActivities);
+  const defaultStrengthActivity =
+    availableStrengthActivities.find((activity) => activity.key === DEFAULT_STRENGTH_ACTIVITY_KEY) ??
+    availableStrengthActivities[0] ??
+    null;
+  const strengthColor = defaultStrengthActivity?.color ?? "#f59e0b";
   const selectedStats = selectedUser ? statsByUser.get(selectedUser.id) : null;
   const selectedStatsValue = selectedStats ?? {
     currentStreak: 0,
@@ -301,12 +330,25 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     if (selected.has(activityKey)) {
       selected.delete(activityKey);
     } else {
-      if (STRENGTH_ACTIVITY_KEY_SET.has(activityKey)) {
-        STRENGTH_ACTIVITY_KEYS.forEach((strengthKey) => selected.delete(strengthKey));
-      }
       selected.add(activityKey);
     }
     void saveActivities([...selected]);
+  }
+
+  function toggleStrengthActivity() {
+    if (!defaultStrengthActivity) return;
+
+    if (selectedStrengthActivity) {
+      void saveActivities(withoutStrengthActivities(selectedDateActivities));
+      return;
+    }
+
+    void saveActivities([...withoutStrengthActivities(selectedDateActivities), defaultStrengthActivity.key]);
+  }
+
+  function selectStrengthVariant(activityKey: SportActivityKey) {
+    if (selectedStrengthActivity === activityKey) return;
+    void saveActivities([...withoutStrengthActivities(selectedDateActivities), activityKey]);
   }
 
   function selectCalendarDate(cell: CalendarCell) {
@@ -398,7 +440,19 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
 
           <div className="sport-legend" aria-label="Типы спорта">
-            {availableActivities.map((activity) => {
+            {availableStrengthActivities.length > 0 ? (
+              <span className="sport-legend-strength">
+                <span className="sport-legend-swatch-stack" aria-hidden="true">
+                  {availableStrengthActivities.map((activity) => (
+                    <i key={activity.key} style={{ backgroundColor: activity.color }} />
+                  ))}
+                </span>
+                <Dumbbell size={15} />
+                <span>Силовая</span>
+                <small>whole / upper / lower</small>
+              </span>
+            ) : null}
+            {availablePrimaryActivities.map((activity) => {
               const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
               return (
                 <span key={activity.key}>
@@ -502,12 +556,69 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
 
           <div className="sport-activity-actions">
-            {availableActivities.map((activity) => {
+            {defaultStrengthActivity ? (
+              <div
+                className={[
+                  "sport-strength-group",
+                  selectedStrengthActivity ? "active" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ "--activity-color": strengthColor } as CSSProperties}
+              >
+                <button
+                  className={selectedStrengthActivity ? "sport-strength-toggle active" : "sport-strength-toggle"}
+                  type="button"
+                  onClick={toggleStrengthActivity}
+                  disabled={savingDate !== null}
+                  aria-pressed={Boolean(selectedStrengthActivity)}
+                  aria-label={`Силовая: ${
+                    selectedStrengthActivity
+                      ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
+                      : "Whole body по умолчанию"
+                  }`}
+                >
+                  <Dumbbell size={18} />
+                  <span className="sport-strength-label">
+                    <strong>Силовая</strong>
+                    <small>
+                      {selectedStrengthActivity
+                        ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
+                        : "Whole body по умолчанию"}
+                    </small>
+                  </span>
+                  {selectedStrengthActivity ? <Check size={17} /> : null}
+                </button>
+
+                {selectedStrengthActivity ? (
+                  <div className="sport-strength-variants" aria-label="Уточнение силовой тренировки">
+                    {availableStrengthActivities.map((activity) => {
+                      const checked = selectedStrengthActivity === activity.key;
+                      return (
+                        <button
+                          className={checked ? "active" : ""}
+                          key={activity.key}
+                          type="button"
+                          onClick={() => selectStrengthVariant(activity.key)}
+                          disabled={savingDate !== null}
+                          aria-pressed={checked}
+                          style={{ "--activity-color": activity.color } as CSSProperties}
+                        >
+                          {STRENGTH_VARIANT_LABELS[activity.key]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {availablePrimaryActivities.map((activity) => {
               const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
               const checked = selectedDateActivities.includes(activity.key);
               return (
                 <button
-                  className={checked ? "active" : ""}
+                  className={checked ? "sport-activity-action active" : "sport-activity-action"}
                   key={activity.key}
                   type="button"
                   onClick={() => toggleActivity(activity.key)}
