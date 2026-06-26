@@ -166,7 +166,7 @@ The script mirrors the current `Money.md` rules:
 - credit-card debt comes from active card accounts with `creditLimit > 0` or negative balance as `max(0, -balance)`;
 - required credit-card groups default to Alfa and T-Bank;
 - manual partner credit-card debt and partner money are read from `Money.md`;
-- reserve increases by 100k only on the 25th;
+- reserve increases by 100k only on the 25th, and repeated syncs for an existing 25th row reuse the reserve from the previous dated row;
 - rent is unpaid from the 10th through the 19th, inclusive;
 - free money is `liquid debit total - credit-card debt - partner money - unpaid rent - reserve`.
 
