@@ -34,6 +34,7 @@ const DOMAINS = ["health", "money", "relationships", "sport"] as const;
 type Domain = (typeof DOMAINS)[number];
 
 const ACTIVE_DOMAIN_STORAGE_KEY = "life-dashboard-active-domain";
+const SELECTED_USER_STORAGE_KEY = "life-dashboard-selected-user";
 
 const QUICK_METRICS = [
   "weight_kg",
@@ -85,6 +86,14 @@ function getInitialActiveDomain(): Domain {
     return isDomain(storedDomain) ? storedDomain : "health";
   } catch {
     return "health";
+  }
+}
+
+function getInitialSelectedUser() {
+  try {
+    return window.localStorage.getItem(SELECTED_USER_STORAGE_KEY) || "";
+  } catch {
+    return "";
   }
 }
 
@@ -211,7 +220,7 @@ function latestMeasurementForUser(measurements: NormalizedMeasurement[], user: s
 
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
-  const [selectedUser, setSelectedUser] = useState<string>("");
+  const [selectedUser, setSelectedUser] = useState<string>(() => getInitialSelectedUser());
   const [selectedMetric, setSelectedMetric] = useState<string>("weight_kg");
   const [activeDomain, setActiveDomain] = useState<Domain>(() => getInitialActiveDomain());
   const [isLoading, setIsLoading] = useState(true);
@@ -225,7 +234,11 @@ function App() {
   async function load(signal?: AbortSignal) {
     const response = await fetchHealthData(signal);
     setData(response.data);
-    setSelectedUser((current) => current || response.data.users[0]?.name || "");
+    setSelectedUser((current) =>
+      response.data.users.some((user) => user.name === current)
+        ? current
+        : response.data.users[0]?.name || ""
+    );
     setSelectedMetric((current) =>
       response.data.metrics.some((metric) => metric.key === current)
         ? current
@@ -318,6 +331,15 @@ function App() {
       // Ignore storage errors so private browsing or quota issues do not break navigation.
     }
   }, [activeDomain]);
+
+  useEffect(() => {
+    if (!selectedUser) return;
+    try {
+      window.localStorage.setItem(SELECTED_USER_STORAGE_KEY, selectedUser);
+    } catch {
+      // Ignore storage errors so private browsing or quota issues do not break navigation.
+    }
+  }, [selectedUser]);
 
   const selectedMetricInfo = useMemo(() => {
     if (!data) return null;
