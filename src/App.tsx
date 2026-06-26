@@ -30,7 +30,10 @@ import {
 } from "./stats";
 import type { DashboardData, MetricCatalogEntry, NormalizedMeasurement } from "./types";
 
-type Domain = "health" | "money" | "relationships" | "sport";
+const DOMAINS = ["health", "money", "relationships", "sport"] as const;
+type Domain = (typeof DOMAINS)[number];
+
+const ACTIVE_DOMAIN_STORAGE_KEY = "life-dashboard-active-domain";
 
 const QUICK_METRICS = [
   "weight_kg",
@@ -71,6 +74,19 @@ const BODY_TYPE_LABELS: Record<number, string> = {
 };
 
 const DAY_SECONDS = 86400;
+
+function isDomain(value: string | null): value is Domain {
+  return DOMAINS.some((domain) => domain === value);
+}
+
+function getInitialActiveDomain(): Domain {
+  try {
+    const storedDomain = window.localStorage.getItem(ACTIVE_DOMAIN_STORAGE_KEY);
+    return isDomain(storedDomain) ? storedDomain : "health";
+  } catch {
+    return "health";
+  }
+}
 
 function statusText(connected: boolean, lastEventAt: string | null) {
   if (connected && lastEventAt) return `Live, ${formatDateTime(lastEventAt)}`;
@@ -197,7 +213,7 @@ function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [selectedMetric, setSelectedMetric] = useState<string>("weight_kg");
-  const [activeDomain, setActiveDomain] = useState<Domain>("health");
+  const [activeDomain, setActiveDomain] = useState<Domain>(() => getInitialActiveDomain());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -294,6 +310,14 @@ function App() {
     const timer = window.setInterval(() => setToday(new Date()), 60 * 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVE_DOMAIN_STORAGE_KEY, activeDomain);
+    } catch {
+      // Ignore storage errors so private browsing or quota issues do not break navigation.
+    }
+  }, [activeDomain]);
 
   const selectedMetricInfo = useMemo(() => {
     if (!data) return null;
