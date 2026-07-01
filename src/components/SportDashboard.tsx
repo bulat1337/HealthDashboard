@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import streakFlameActiveUrl from "../assets/duolingo-streak-flame-active.svg";
+import streakFlameIdleUrl from "../assets/duolingo-streak-flame-idle.svg";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -10,10 +12,8 @@ import {
   CircleAlert,
   CircleOff,
   Dumbbell,
-  Flame,
   Footprints,
   RefreshCw,
-  Target,
   Trophy,
   Users
 } from "lucide-react";
@@ -32,13 +32,18 @@ type SportDashboardProps = {
 };
 
 type SportStats = {
-  currentStreak: number;
-  bestStreak: number;
+  currentStreakDays: number;
+  bestStreakDays: number;
+  currentStreakStartDate: string | null;
+  currentStreakWorkoutDays: number;
+  currentStreakRestDays: number;
   monthDays: number;
   monthActivities: number;
   weekWorkoutDays: number;
   weekWorkoutDaysRemaining: number;
+  weekRestDaysUsed: number;
   weekRestDaysRemaining: number;
+  weekDayStates: SportWeekDayState[];
   currentWeekFulfilled: boolean;
   currentWeekViable: boolean;
   todayDone: boolean;
@@ -49,6 +54,24 @@ type CalendarCell = {
   date: Date;
   key: string;
   inMonth: boolean;
+};
+
+type SportWeekDayStatus = "workout" | "rest" | "open" | "future";
+
+type SportWeekDayState = {
+  key: string;
+  label: string;
+  dayNumber: number;
+  status: SportWeekDayStatus;
+  isToday: boolean;
+};
+
+type SmartStreak = {
+  currentStreakDays: number;
+  bestStreakDays: number;
+  currentStreakStartDate: string | null;
+  currentStreakWorkoutDays: number;
+  currentStreakRestDays: number;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -125,10 +148,6 @@ function nextDateKey(key: string) {
   return dateKey(addDays(parseDateKey(key), 1));
 }
 
-function previousWeekKey(key: string) {
-  return dateKey(addDays(parseDateKey(key), -WEEK_LENGTH_DAYS));
-}
-
 function dayDistance(start: Date, end: Date) {
   return Math.round((startOfLocalDay(end).getTime() - startOfLocalDay(start).getTime()) / DAY_MS);
 }
@@ -193,59 +212,139 @@ function countWorkoutDays(dates: Set<string>, startKey: string, endKey: string) 
   return dateKeysBetween(startKey, endKey).filter((key) => dates.has(key)).length;
 }
 
-function fulfilledWeekSet(dates: Set<string>, todayKey: string) {
-  const weekCounts = new Map<string, number>();
-  for (const key of dates) {
-    if (key > todayKey) continue;
-    const weekKey = dateKey(startOfWeek(parseDateKey(key)));
-    weekCounts.set(weekKey, (weekCounts.get(weekKey) ?? 0) + 1);
-  }
-
-  return new Set(
-    [...weekCounts.entries()]
-      .filter(([, workoutDays]) => workoutDays >= WEEKLY_WORKOUT_TARGET)
-      .map(([weekKey]) => weekKey)
-  );
+function emptySmartStreak(): SmartStreak {
+  return {
+    currentStreakDays: 0,
+    bestStreakDays: 0,
+    currentStreakStartDate: null,
+    currentStreakWorkoutDays: 0,
+    currentStreakRestDays: 0
+  };
 }
 
-function countWeekStreakBackwards(weeks: Set<string>, anchorWeekKey: string) {
-  let count = 0;
-  let cursor = anchorWeekKey;
-  while (weeks.has(cursor)) {
-    count += 1;
-    cursor = previousWeekKey(cursor);
-  }
-  return count;
-}
+function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
+  const todayKey = dateKey(today);
+  const workoutDates = [...dates].filter((key) => key <= todayKey).sort();
+  if (workoutDates.length === 0) return emptySmartStreak();
 
-function calculateCurrentWeekStreak(
-  weeks: Set<string>,
-  currentWeekKey: string,
-  currentWeekFulfilled: boolean,
-  currentWeekViable: boolean
-) {
-  if (currentWeekFulfilled) return countWeekStreakBackwards(weeks, currentWeekKey);
-  if (currentWeekViable) return countWeekStreakBackwards(weeks, previousWeekKey(currentWeekKey));
-  return 0;
-}
+  let cursor = parseDateKey(workoutDates[0]);
+  let currentStreakDays = 0;
+  let bestStreakDays = 0;
+  let currentStreakStartDate: string | null = null;
+  let currentStreakWorkoutDays = 0;
+  let currentStreakRestDays = 0;
+  let activeWeekKey: string | null = null;
+  let activeWeekRestDays = 0;
 
-function calculateBestWeekStreak(weeks: Set<string>) {
-  const sorted = [...weeks].sort();
-  let best = 0;
-  let current = 0;
-  let previous: string | null = null;
-
-  for (const key of sorted) {
-    current = previous && previousWeekKey(key) === previous ? current + 1 : 1;
-    best = Math.max(best, current);
-    previous = key;
+  function resetCurrentStreak() {
+    currentStreakDays = 0;
+    currentStreakStartDate = null;
+    currentStreakWorkoutDays = 0;
+    currentStreakRestDays = 0;
+    activeWeekKey = null;
+    activeWeekRestDays = 0;
   }
 
-  return best;
+  function startCurrentStreak(key: string, date: Date) {
+    currentStreakDays = 1;
+    currentStreakStartDate = key;
+    currentStreakWorkoutDays = 1;
+    currentStreakRestDays = 0;
+    activeWeekKey = dateKey(startOfWeek(date));
+    activeWeekRestDays = 0;
+  }
+
+  while (dateKey(cursor) <= todayKey) {
+    const key = dateKey(cursor);
+    const hasWorkout = dates.has(key);
+
+    if (currentStreakDays === 0) {
+      if (hasWorkout) startCurrentStreak(key, cursor);
+      bestStreakDays = Math.max(bestStreakDays, currentStreakDays);
+      cursor = addDays(cursor, 1);
+      continue;
+    }
+
+    const weekKey = dateKey(startOfWeek(cursor));
+    if (weekKey !== activeWeekKey) {
+      activeWeekKey = weekKey;
+      activeWeekRestDays = 0;
+    }
+
+    if (hasWorkout) {
+      currentStreakDays += 1;
+      currentStreakWorkoutDays += 1;
+    } else if (activeWeekRestDays < WEEKLY_REST_ALLOWANCE) {
+      currentStreakDays += 1;
+      currentStreakRestDays += 1;
+      activeWeekRestDays += 1;
+    } else {
+      resetCurrentStreak();
+    }
+
+    bestStreakDays = Math.max(bestStreakDays, currentStreakDays);
+    cursor = addDays(cursor, 1);
+  }
+
+  return {
+    currentStreakDays,
+    bestStreakDays,
+    currentStreakStartDate,
+    currentStreakWorkoutDays,
+    currentStreakRestDays
+  };
+}
+
+function buildCurrentWeekDayStates(
+  dates: Set<string>,
+  today: Date,
+  currentStreakStartDate: string | null
+): SportWeekDayState[] {
+  const todayKey = dateKey(today);
+  const weekStart = startOfWeek(today);
+
+  return WEEKDAY_LABELS.map((label, index) => {
+    const date = addDays(weekStart, index);
+    const key = dateKey(date);
+    const hasWorkout = dates.has(key);
+    const isPastOrToday = key <= todayKey;
+    const streakCoversDay = Boolean(currentStreakStartDate && key >= currentStreakStartDate);
+    const status: SportWeekDayStatus = hasWorkout
+      ? "workout"
+      : !isPastOrToday
+        ? "future"
+        : streakCoversDay
+          ? "rest"
+          : "open";
+
+    return {
+      key,
+      label,
+      dayNumber: date.getDate(),
+      status,
+      isToday: key === todayKey
+    };
+  });
+}
+
+function streakDayStatusLabel(status: SportWeekDayStatus) {
+  if (status === "workout") return "тренировка";
+  if (status === "rest") return "отдых в балансе";
+  if (status === "future") return "впереди";
+  return "ожидает тренировки";
+}
+
+function dayStreakLabel(value: number) {
+  return pluralRu(value, ["день", "дня", "дней"]);
+}
+
+function monthWorkoutLabel(value: number) {
+  return pluralRu(value, ["день", "дня", "дней"]);
 }
 
 function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
+  const smartStreak = calculateSmartDayStreak(dates, today);
   const todayKey = dateKey(today);
   const currentWeekStart = startOfWeek(today);
   const currentWeekKey = dateKey(currentWeekStart);
@@ -269,21 +368,16 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
   const currentWeekViable =
     currentWeekFulfilled ||
     (weekRestDaysUsed <= WEEKLY_REST_ALLOWANCE && weekWorkoutDaysRemaining <= availableWorkoutDays);
-  const fulfilledWeeks = fulfilledWeekSet(dates, todayKey);
 
   return {
-    currentStreak: calculateCurrentWeekStreak(
-      fulfilledWeeks,
-      currentWeekKey,
-      currentWeekFulfilled,
-      currentWeekViable
-    ),
-    bestStreak: calculateBestWeekStreak(fulfilledWeeks),
+    ...smartStreak,
     monthDays: monthEntries.length,
     monthActivities: monthEntries.reduce((sum, entry) => sum + entry.activities.length, 0),
     weekWorkoutDays,
     weekWorkoutDaysRemaining,
+    weekRestDaysUsed,
     weekRestDaysRemaining,
+    weekDayStates: buildCurrentWeekDayStates(dates, today, smartStreak.currentStreakStartDate),
     currentWeekFulfilled,
     currentWeekViable,
     todayDone,
@@ -306,17 +400,6 @@ function getStrengthActivity(activities: SportActivityKey[]) {
 
 function withoutStrengthActivities(activities: SportActivityKey[]) {
   return activities.filter((activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity));
-}
-
-function streakStatus(stats: SportStats) {
-  if (stats.currentWeekFulfilled) return "неделя закрыта";
-  if (!stats.currentWeekViable) return "неделя сорвана";
-  if (stats.currentStreak > 0) return "стрик держится";
-  return "стрик готов к старту";
-}
-
-function monthWorkoutLabel(value: number) {
-  return pluralRu(value, ["день", "дня", "дней"]);
 }
 
 export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
@@ -387,13 +470,18 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const strengthColor = defaultStrengthActivity?.color ?? "#f59e0b";
   const selectedStats = selectedUser ? statsByUser.get(selectedUser.id) : null;
   const selectedStatsValue = selectedStats ?? {
-    currentStreak: 0,
-    bestStreak: 0,
+    currentStreakDays: 0,
+    bestStreakDays: 0,
+    currentStreakStartDate: null,
+    currentStreakWorkoutDays: 0,
+    currentStreakRestDays: 0,
     monthDays: 0,
     monthActivities: 0,
     weekWorkoutDays: 0,
     weekWorkoutDaysRemaining: WEEKLY_WORKOUT_TARGET,
+    weekRestDaysUsed: 0,
     weekRestDaysRemaining: WEEKLY_REST_ALLOWANCE,
+    weekDayStates: buildCurrentWeekDayStates(new Set<string>(), today, null),
     currentWeekFulfilled: false,
     currentWeekViable: true,
     todayDone: false,
@@ -604,50 +692,75 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
         </article>
 
         <aside className="sport-side-column">
-          <article className="panel sport-streak-card sport-streak-panel" aria-label="Стрик выбранного пользователя">
-            <div className="sport-streak-card-top">
-              <span className="sport-flame-circle">
-                <Flame size={22} />
-              </span>
-              <div>
-                <strong>{selectedUser?.name ?? "Спорт"}</strong>
-                <span>{streakStatus(selectedStatsValue)}</span>
+          <article
+            className={[
+              "panel sport-streak-card sport-streak-panel",
+              selectedStatsValue.currentStreakDays > 0 ? "active" : "idle"
+            ].join(" ")}
+            aria-label="Стрик выбранного пользователя"
+          >
+            <div className="sport-streak-main">
+              <div className="sport-streak-copy">
+                <span className="sport-streak-eyebrow">Стрик</span>
+                <div className="sport-streak-value">
+                  <strong>{selectedStatsValue.currentStreakDays}</strong>
+                  <span>{dayStreakLabel(selectedStatsValue.currentStreakDays)} подряд</span>
+                </div>
+              </div>
+
+              <div className="sport-streak-stage" aria-hidden="true">
+                <span
+                  key={`${selectedUser?.id ?? "sport"}-${selectedStatsValue.currentStreakDays}`}
+                  className="sport-streak-flame-pop"
+                >
+                  <span className="sport-streak-flame-burn">
+                    <img
+                      className="sport-streak-flame-image"
+                      src={selectedStatsValue.currentStreakDays > 0 ? streakFlameActiveUrl : streakFlameIdleUrl}
+                      alt=""
+                    />
+                    {selectedStatsValue.currentStreakDays > 0 ? (
+                      <img className="sport-streak-flame-glow" src={streakFlameActiveUrl} alt="" />
+                    ) : null}
+                  </span>
+                </span>
               </div>
             </div>
-            <div className="sport-streak-value">
-              <strong>{selectedStatsValue.currentStreak}</strong>
-              <span>
-                {pluralRu(selectedStatsValue.currentStreak, ["неделя", "недели", "недель"])} подряд
-              </span>
+
+            <div className="sport-streak-week" aria-label="Текущая неделя стрика">
+              {selectedStatsValue.weekDayStates.map((day) => (
+                <span
+                  key={day.key}
+                  className={[
+                    "sport-streak-weekday",
+                    day.status,
+                    day.isToday ? "today" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  title={`${formatLongDate(parseDateKey(day.key))}: ${streakDayStatusLabel(day.status)}`}
+                  aria-label={`${day.label}, ${day.dayNumber}: ${streakDayStatusLabel(day.status)}`}
+                >
+                  <small>{day.label}</small>
+                  <b>{day.dayNumber}</b>
+                </span>
+              ))}
             </div>
+
             <dl className="sport-streak-facts">
               <div>
                 <dt>
                   <Trophy size={15} />
                   Лучший
                 </dt>
-                <dd>{selectedStatsValue.bestStreak}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Target size={15} />
-                  Неделя
-                </dt>
-                <dd>{selectedStatsValue.weekWorkoutDays}/{WEEKLY_WORKOUT_TARGET}</dd>
+                <dd>{selectedStatsValue.bestStreakDays}</dd>
               </div>
               <div>
                 <dt>
                   <CircleOff size={15} />
                   Отдых
                 </dt>
-                <dd>{selectedStatsValue.weekRestDaysRemaining}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Activity size={15} />
-                  До цели
-                </dt>
-                <dd>{selectedStatsValue.weekWorkoutDaysRemaining}</dd>
+                <dd>{selectedStatsValue.weekRestDaysRemaining}/{WEEKLY_REST_ALLOWANCE}</dd>
               </div>
             </dl>
           </article>
@@ -750,8 +863,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               </span>
             </div>
             <div>
-              <strong>{selectedStats?.currentStreak ?? 0}</strong>
-              <span>недельный стрик</span>
+              <strong>{selectedStats?.currentStreakDays ?? 0}</strong>
+              <span>дневный стрик</span>
             </div>
           </div>
 
