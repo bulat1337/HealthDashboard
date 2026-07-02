@@ -9,10 +9,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUp,
   CircleAlert,
   CircleOff,
   Dumbbell,
   Footprints,
+  MoveDown,
   RefreshCw,
   Trophy,
   Users
@@ -86,7 +88,9 @@ const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   strength_lower: Dumbbell,
   strength_upper: Dumbbell,
   strength_whole: Dumbbell,
-  cycling: Bike
+  cycling: Bike,
+  pull_ups: ChevronsUp,
+  push_ups: MoveDown
 };
 
 const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
@@ -102,7 +106,9 @@ const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   strength_lower: "Lower body",
   strength_upper: "Upper body",
   strength_whole: "Whole body",
-  cycling: "Велотренировка"
+  cycling: "Велотренировка",
+  pull_ups: "Подтягивания",
+  push_ups: "Отжимания"
 };
 
 function startOfLocalDay(date: Date) {

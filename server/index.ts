@@ -301,7 +301,9 @@ type SportActivityKey =
   | "strength_lower"
   | "strength_upper"
   | "strength_whole"
-  | "cycling";
+  | "cycling"
+  | "pull_ups"
+  | "push_ups";
 
 type SportActivityCatalogEntry = {
   key: SportActivityKey;
@@ -342,19 +344,39 @@ const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "strength_lower", label: "Силовая · lower body", color: "#f97316" },
   { key: "strength_upper", label: "Силовая · upper body", color: "#ea580c" },
   { key: "strength_whole", label: "Силовая · whole body", color: "#f59e0b" },
-  { key: "cycling", label: "Велотренировка", color: "#0f766e" }
+  { key: "cycling", label: "Велотренировка", color: "#0f766e" },
+  { key: "pull_ups", label: "Подтягивания", color: "#16a34a" },
+  { key: "push_ups", label: "Отжимания", color: "#7c3aed" }
 ];
 
 const SPORT_USERS: Omit<SportUser, "entries">[] = [
   {
     id: "bulat",
     name: "Булат",
-    activityTypes: ["strength_lower", "strength_upper", "strength_whole", "run", "pilates", "cycling"]
+    activityTypes: [
+      "strength_lower",
+      "strength_upper",
+      "strength_whole",
+      "run",
+      "pilates",
+      "cycling",
+      "pull_ups",
+      "push_ups"
+    ]
   },
   {
     id: "diana",
     name: "Диана",
-    activityTypes: ["strength_lower", "strength_upper", "strength_whole", "run", "pilates", "cycling"]
+    activityTypes: [
+      "strength_lower",
+      "strength_upper",
+      "strength_whole",
+      "run",
+      "pilates",
+      "cycling",
+      "pull_ups",
+      "push_ups"
+    ]
   }
 ];
 

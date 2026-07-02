@@ -174,7 +174,9 @@ export type SportActivityKey =
   | "strength_lower"
   | "strength_upper"
   | "strength_whole"
-  | "cycling";
+  | "cycling"
+  | "pull_ups"
+  | "push_ups";
 
 export type SportActivityCatalogEntry = {
   key: SportActivityKey;
