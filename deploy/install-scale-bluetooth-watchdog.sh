@@ -13,6 +13,7 @@ TIMER_FILE="/etc/systemd/system/health-dashboard-scale-bluetooth-watchdog.timer"
 
 chmod +x "$APP_DIR/deploy/reset-scale-bluetooth.sh"
 chmod +x "$APP_DIR/deploy/check-scale-bluetooth.sh"
+chmod +x "$APP_DIR/deploy/install-scale-bluetooth-alias.sh"
 
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -42,4 +43,5 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now health-dashboard-scale-bluetooth-watchdog.timer
+"$APP_DIR/deploy/install-scale-bluetooth-alias.sh"
 systemctl list-timers health-dashboard-scale-bluetooth-watchdog.timer --no-pager

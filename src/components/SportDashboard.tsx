@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import streakFlameActiveUrl from "../assets/duolingo-streak-flame-active.svg";
 import streakFlameIdleUrl from "../assets/duolingo-streak-flame-idle.svg";
@@ -41,6 +41,7 @@ type SportStats = {
   currentStreakRestDays: number;
   monthDays: number;
   monthActivities: number;
+  monthRunDistanceKm: number;
   weekWorkoutDays: number;
   weekWorkoutDaysRemaining: number;
   weekRestDaysUsed: number;
@@ -181,6 +182,40 @@ function pluralRu(value: number, forms: [string, string, string]) {
   return forms[2];
 }
 
+function roundDistanceKm(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function formatDistanceKm(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function formatDistanceDraft(value: number | null) {
+  return value === null ? "" : formatDistanceKm(value);
+}
+
+function parseDistanceDraft(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: null, error: null };
+
+  const parsed = Number(trimmed.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { value: null, error: "Введите дистанцию больше 0 км." };
+  }
+
+  if (parsed > 1000) {
+    return { value: null, error: "Проверьте дистанцию: максимум 1000 км." };
+  }
+
+  return { value: roundDistanceKm(parsed), error: null };
+}
+
+function sameDistance(left: number | null, right: number | null) {
+  return left === right;
+}
+
 function buildCalendarCells(month: Date): CalendarCell[] {
   const firstDay = startOfMonth(month);
   const mondayOffset = (firstDay.getDay() + 6) % 7;
@@ -197,7 +232,7 @@ function buildCalendarCells(month: Date): CalendarCell[] {
 }
 
 function entryMap(entries: SportEntry[]) {
-  return new Map(entries.map((entry) => [entry.date, entry.activities]));
+  return new Map(entries.map((entry) => [entry.date, entry]));
 }
 
 function activityDateSet(user: SportUser) {
@@ -357,6 +392,9 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
   const currentWeekEndKey = dateKey(addDays(currentWeekStart, WEEK_LENGTH_DAYS - 1));
   const monthPrefix = dateKey(startOfMonth(visibleMonth)).slice(0, 7);
   const monthEntries = user.entries.filter((entry) => entry.date.startsWith(monthPrefix));
+  const monthRunDistanceKm = roundDistanceKm(
+    monthEntries.reduce((sum, entry) => sum + (entry.runDistanceKm ?? 0), 0)
+  );
   const pastOrTodayEntries = user.entries.filter((entry) => entry.date <= todayKey);
   const lastWorkoutDate = pastOrTodayEntries[pastOrTodayEntries.length - 1]?.date ?? null;
   const todayDone = dates.has(todayKey);
@@ -379,6 +417,7 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
     ...smartStreak,
     monthDays: monthEntries.length,
     monthActivities: monthEntries.reduce((sum, entry) => sum + entry.activities.length, 0),
+    monthRunDistanceKm,
     weekWorkoutDays,
     weekWorkoutDaysRemaining,
     weekRestDaysUsed,
@@ -416,6 +455,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingDate, setSavingDate] = useState<string | null>(null);
+  const [runDistanceDraft, setRunDistanceDraft] = useState("");
+  const [runDistanceError, setRunDistanceError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -456,7 +497,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     return new Map(data.users.map((user) => [user.id, calculateSportStats(user, today, visibleMonth)]));
   }, [data, today, visibleMonth]);
 
-  const selectedDateActivities = selectedEntriesByDate.get(selectedDate) ?? [];
+  const selectedDateEntry = selectedEntriesByDate.get(selectedDate) ?? null;
+  const selectedDateActivities = selectedDateEntry?.activities ?? [];
+  const selectedDateRunDistanceKm = selectedDateEntry?.runDistanceKm ?? null;
+  const selectedDateHasRun = selectedDateActivities.includes("run");
   const selectedDateObject = parseDateKey(selectedDate);
   const availableActivities =
     selectedUser?.activityTypes
@@ -483,6 +527,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     currentStreakRestDays: 0,
     monthDays: 0,
     monthActivities: 0,
+    monthRunDistanceKm: 0,
     weekWorkoutDays: 0,
     weekWorkoutDaysRemaining: WEEKLY_WORKOUT_TARGET,
     weekRestDaysUsed: 0,
@@ -493,17 +538,30 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     todayDone: false,
     lastWorkoutDate: null
   };
+  const runDistanceParseResult = useMemo(() => parseDistanceDraft(runDistanceDraft), [runDistanceDraft]);
+  const runDistanceMessage = runDistanceError ?? runDistanceParseResult.error;
+  const runDistanceDirty =
+    selectedDateHasRun &&
+    !runDistanceParseResult.error &&
+    !sameDistance(runDistanceParseResult.value, selectedDateRunDistanceKm);
 
-  async function saveActivities(nextActivities: SportActivityKey[]) {
+  useEffect(() => {
+    setRunDistanceDraft(formatDistanceDraft(selectedDateRunDistanceKm));
+    setRunDistanceError(null);
+  }, [selectedDate, selectedUser?.id, selectedDateRunDistanceKm]);
+
+  async function saveSportDay(nextActivities: SportActivityKey[], nextRunDistanceKm: number | null) {
     if (!selectedUser) return;
 
+    const activities = sortActivitiesForUser(selectedUser, nextActivities);
     setSavingDate(selectedDate);
     setError(null);
     try {
       const response = await updateSportDay({
         userId: selectedUser.id,
         date: selectedDate,
-        activities: sortActivitiesForUser(selectedUser, nextActivities)
+        activities,
+        runDistanceKm: activities.includes("run") ? nextRunDistanceKm : null
       });
       setData(response.data);
     } catch (saveError) {
@@ -511,6 +569,24 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     } finally {
       setSavingDate(null);
     }
+  }
+
+  async function saveActivities(nextActivities: SportActivityKey[]) {
+    await saveSportDay(nextActivities, nextActivities.includes("run") ? selectedDateRunDistanceKm : null);
+  }
+
+  function saveRunDistance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDateHasRun) return;
+
+    const parsed = parseDistanceDraft(runDistanceDraft);
+    if (parsed.error) {
+      setRunDistanceError(parsed.error);
+      return;
+    }
+
+    setRunDistanceError(null);
+    void saveSportDay(selectedDateActivities, parsed.value);
   }
 
   function toggleActivity(activityKey: SportActivityKey) {
@@ -601,7 +677,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               <span>
                 {selectedStats?.monthDays ?? 0} {monthWorkoutLabel(selectedStats?.monthDays ?? 0)} с занятиями ·{" "}
                 {selectedStats?.monthActivities ?? 0}{" "}
-                {pluralRu(selectedStats?.monthActivities ?? 0, ["тренировка", "тренировки", "тренировок"])}
+                {pluralRu(selectedStats?.monthActivities ?? 0, ["тренировка", "тренировки", "тренировок"])} ·{" "}
+                {formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)} км бега
               </span>
             </div>
             <div className="sport-month-nav" aria-label="Месяц">
@@ -660,7 +737,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
 
           <div className="sport-calendar-grid">
             {calendarCells.map((cell) => {
-              const activities = selectedEntriesByDate.get(cell.key) ?? [];
+              const entry = selectedEntriesByDate.get(cell.key);
+              const activities = entry?.activities ?? [];
               const isToday = cell.key === dateKey(today);
               const isSelected = cell.key === selectedDate;
               const activityDetails = activities
@@ -683,7 +761,9 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   onClick={() => selectCalendarDate(cell)}
                   aria-label={`${formatLongDate(cell.date)}: ${activityDetails
                     .map((activity) => activity.label)
-                    .join(", ") || "без занятий"}`}
+                    .join(", ") || "без занятий"}${
+                    entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
+                  }`}
                 >
                   <span className="sport-day-number">{cell.date.getDate()}</span>
                   <span className="sport-day-activity-bars">
@@ -861,6 +941,44 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             })}
           </div>
 
+          {selectedDateHasRun ? (
+            <form className="sport-run-distance-form" onSubmit={saveRunDistance}>
+              <label htmlFor="sport-run-distance">
+                <Footprints size={16} />
+                <span>Дистанция забега</span>
+              </label>
+              <div className="sport-run-distance-row">
+                <div className="sport-run-distance-input-shell">
+                  <input
+                    id="sport-run-distance"
+                    type="text"
+                    inputMode="decimal"
+                    value={runDistanceDraft}
+                    onChange={(event) => {
+                      setRunDistanceDraft(event.target.value);
+                      setRunDistanceError(null);
+                    }}
+                    placeholder="0,00"
+                    disabled={savingDate !== null}
+                    aria-invalid={Boolean(runDistanceMessage)}
+                  />
+                  <span>км</span>
+                </div>
+                <button
+                  className="sport-run-distance-save"
+                  type="submit"
+                  disabled={savingDate !== null || !runDistanceDirty}
+                >
+                  <Check size={16} />
+                  <span>Сохранить</span>
+                </button>
+              </div>
+              {runDistanceMessage ? (
+                <span className="sport-run-distance-error">{runDistanceMessage}</span>
+              ) : null}
+            </form>
+          ) : null}
+
           <div className="sport-day-summary">
             <div>
               <strong>{selectedDateActivities.length}</strong>
@@ -871,6 +989,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             <div>
               <strong>{selectedStats?.currentStreakDays ?? 0}</strong>
               <span>дневный стрик</span>
+            </div>
+            <div>
+              <strong>{formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)}</strong>
+              <span>км бега за месяц</span>
             </div>
           </div>
 

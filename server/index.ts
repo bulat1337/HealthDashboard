@@ -314,6 +314,7 @@ type SportActivityCatalogEntry = {
 type SportEntry = {
   date: string;
   activities: SportActivityKey[];
+  runDistanceKm: number | null;
 };
 
 type SportUser = {
@@ -336,6 +337,7 @@ type SportDayUpdate = {
   userId: string;
   date: string;
   activities: SportActivityKey[];
+  runDistanceKm: number | null;
 };
 
 const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
@@ -858,13 +860,42 @@ function normalizeSportActivities(raw: unknown, allowedActivities: SportActivity
   return activities;
 }
 
+function sportRunDistanceFromUnknown(value: unknown, shouldThrow = false): number | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  const normalized = typeof value === "string" ? value.trim().replace(",", ".") : value;
+  const distance = asNumber(normalized);
+  if (distance === null || distance <= 0 || distance > 1000) {
+    if (shouldThrow) {
+      throw new Error("Дистанция забега должна быть числом больше 0 и не больше 1000 км.");
+    }
+    return null;
+  }
+
+  return round(distance, 2);
+}
+
+function normalizeSportEntryValue(rawEntry: unknown, allowedActivities: SportActivityKey[]) {
+  const rawActivities = isPlainObject(rawEntry) ? rawEntry.activities : rawEntry;
+  const activities = normalizeSportActivities(rawActivities, allowedActivities);
+  const runDistanceKm =
+    activities.includes("run") && isPlainObject(rawEntry)
+      ? sportRunDistanceFromUnknown(rawEntry.runDistanceKm ?? rawEntry.run_distance_km)
+      : null;
+
+  return {
+    activities,
+    runDistanceKm
+  };
+}
+
 function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivityKey[]) {
   if (!isPlainObject(rawUser) || !isPlainObject(rawUser.entries)) return [];
 
   return Object.entries(rawUser.entries)
-    .map(([date, rawActivities]) => ({
+    .map(([date, rawEntry]) => ({
       date,
-      activities: normalizeSportActivities(rawActivities, allowedActivities)
+      ...normalizeSportEntryValue(rawEntry, allowedActivities)
     }))
     .filter((entry): entry is SportEntry => isDateKey(entry.date) && entry.activities.length > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -927,7 +958,10 @@ function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
   return {
     userId: user.id,
     date: body.date,
-    activities
+    activities,
+    runDistanceKm: activities.includes("run")
+      ? sportRunDistanceFromUnknown(body.runDistanceKm, true)
+      : null
   };
 }
 
@@ -940,7 +974,12 @@ function writeSportDay(update: SportDayUpdate) {
   const entries = isPlainObject(userRecord.entries) ? { ...userRecord.entries } : {};
 
   if (update.activities.length > 0) {
-    entries[update.date] = update.activities;
+    entries[update.date] = update.runDistanceKm === null
+      ? update.activities
+      : {
+          activities: update.activities,
+          runDistanceKm: update.runDistanceKm
+        };
   } else {
     delete entries[update.date];
   }
@@ -952,7 +991,7 @@ function writeSportDay(update: SportDayUpdate) {
 
   const nextRaw = {
     ...rawObject,
-    schemaVersion: 1,
+    schemaVersion: update.runDistanceKm === null ? rawObject.schemaVersion ?? 1 : 2,
     users
   };
 

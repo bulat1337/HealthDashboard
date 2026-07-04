@@ -187,6 +187,7 @@ export type SportActivityCatalogEntry = {
 export type SportEntry = {
   date: string;
   activities: SportActivityKey[];
+  runDistanceKm: number | null;
 };
 
 export type SportUser = {

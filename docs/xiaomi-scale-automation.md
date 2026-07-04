@@ -134,7 +134,7 @@ export XIAOMI_SCALE_USER_MAP='{"1":"Demo User","2":"Partner"}'
 Если kernel log показывает `Bluetooth: hci0: command 0x200c tx timeout` или `Bluetooth: hci0: Unable to disable scanning`, завис USB Bluetooth controller. Сбросить его можно так:
 
 ```bash
-sudo /home/bulat/apps/health-dashboard/deploy/reset-scale-bluetooth.sh
+blueres
 ```
 
 Для автоматического сброса застрявшего `hci0` установите root watchdog timer:

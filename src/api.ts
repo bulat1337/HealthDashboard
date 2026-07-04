@@ -31,7 +31,7 @@ export async function fetchSportData(signal?: AbortSignal): Promise<SportDataRes
 }
 
 export async function updateSportDay(
-  input: { userId: string; date: string; activities: SportActivityKey[] },
+  input: { userId: string; date: string; activities: SportActivityKey[]; runDistanceKm?: number | null },
   signal?: AbortSignal
 ) {
   const response = await fetch("/api/sport-data/day", {

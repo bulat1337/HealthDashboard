@@ -2200,9 +2200,109 @@ select:focus-visible {
   box-shadow: inset 0 -3px 0 var(--activity-color);
 }
 
+.sport-run-distance-form {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.sport-run-distance-form label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-blue);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sport-run-distance-form label svg {
+  color: var(--primary);
+}
+
+.sport-run-distance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.sport-run-distance-input-shell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sport-run-distance-input-shell:focus-within {
+  border-color: rgba(30, 64, 175, 0.58);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.sport-run-distance-input-shell input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.sport-run-distance-input-shell input:disabled {
+  cursor: wait;
+}
+
+.sport-run-distance-input-shell span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sport-run-distance-save {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  transition:
+    background-color 200ms ease,
+    opacity 200ms ease;
+}
+
+.sport-run-distance-save:hover {
+  background: var(--ink-blue);
+}
+
+.sport-run-distance-save:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sport-run-distance-error {
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .sport-day-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
