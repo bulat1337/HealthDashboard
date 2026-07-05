@@ -46,6 +46,7 @@ type SportStats = {
   weekWorkoutDaysRemaining: number;
   weekRestDaysUsed: number;
   weekRestDaysRemaining: number;
+  weekRestDaysAllowance: number;
   weekDayStates: SportWeekDayState[];
   currentWeekFulfilled: boolean;
   currentWeekViable: boolean;
@@ -75,12 +76,14 @@ type SmartStreak = {
   currentStreakStartDate: string | null;
   currentStreakWorkoutDays: number;
   currentStreakRestDays: number;
+  currentWeekRestAllowance: number;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_LENGTH_DAYS = 7;
 const WEEKLY_WORKOUT_TARGET = 4;
 const WEEKLY_REST_ALLOWANCE = WEEK_LENGTH_DAYS - WEEKLY_WORKOUT_TARGET;
+const REST_CARRYOVER_USER_IDS = new Set(["diana"]);
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
@@ -259,11 +262,20 @@ function emptySmartStreak(): SmartStreak {
     bestStreakDays: 0,
     currentStreakStartDate: null,
     currentStreakWorkoutDays: 0,
-    currentStreakRestDays: 0
+    currentStreakRestDays: 0,
+    currentWeekRestAllowance: WEEKLY_REST_ALLOWANCE
   };
 }
 
-function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
+function hasRestDayCarryover(user: SportUser) {
+  return REST_CARRYOVER_USER_IDS.has(user.id);
+}
+
+function calculateSmartDayStreak(
+  dates: Set<string>,
+  today: Date,
+  carriesRestDays: boolean
+): SmartStreak {
   const todayKey = dateKey(today);
   const workoutDates = [...dates].filter((key) => key <= todayKey).sort();
   if (workoutDates.length === 0) return emptySmartStreak();
@@ -276,6 +288,11 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
   let currentStreakRestDays = 0;
   let activeWeekKey: string | null = null;
   let activeWeekRestDays = 0;
+  let carriedRestDays = 0;
+
+  function activeWeekRestAllowance() {
+    return WEEKLY_REST_ALLOWANCE + (carriesRestDays ? carriedRestDays : 0);
+  }
 
   function resetCurrentStreak() {
     currentStreakDays = 0;
@@ -284,6 +301,7 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
     currentStreakRestDays = 0;
     activeWeekKey = null;
     activeWeekRestDays = 0;
+    carriedRestDays = 0;
   }
 
   function startCurrentStreak(key: string, date: Date) {
@@ -293,6 +311,7 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
     currentStreakRestDays = 0;
     activeWeekKey = dateKey(startOfWeek(date));
     activeWeekRestDays = 0;
+    carriedRestDays = 0;
   }
 
   while (dateKey(cursor) <= todayKey) {
@@ -308,6 +327,9 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
 
     const weekKey = dateKey(startOfWeek(cursor));
     if (weekKey !== activeWeekKey) {
+      if (carriesRestDays) {
+        carriedRestDays = Math.max(0, activeWeekRestAllowance() - activeWeekRestDays);
+      }
       activeWeekKey = weekKey;
       activeWeekRestDays = 0;
     }
@@ -315,7 +337,7 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
     if (hasWorkout) {
       currentStreakDays += 1;
       currentStreakWorkoutDays += 1;
-    } else if (activeWeekRestDays < WEEKLY_REST_ALLOWANCE) {
+    } else if (activeWeekRestDays < activeWeekRestAllowance()) {
       currentStreakDays += 1;
       currentStreakRestDays += 1;
       activeWeekRestDays += 1;
@@ -332,7 +354,11 @@ function calculateSmartDayStreak(dates: Set<string>, today: Date): SmartStreak {
     bestStreakDays,
     currentStreakStartDate,
     currentStreakWorkoutDays,
-    currentStreakRestDays
+    currentStreakRestDays,
+    currentWeekRestAllowance:
+      currentStreakDays > 0 && activeWeekKey === dateKey(startOfWeek(today))
+        ? activeWeekRestAllowance()
+        : WEEKLY_REST_ALLOWANCE
   };
 }
 
@@ -385,7 +411,7 @@ function monthWorkoutLabel(value: number) {
 
 function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
-  const smartStreak = calculateSmartDayStreak(dates, today);
+  const smartStreak = calculateSmartDayStreak(dates, today, hasRestDayCarryover(user));
   const todayKey = dateKey(today);
   const currentWeekStart = startOfWeek(today);
   const currentWeekKey = dateKey(currentWeekStart);
@@ -404,14 +430,15 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
     : 0;
   const weekWorkoutDays = countWorkoutDays(dates, currentWeekKey, todayKey);
   const weekRestDaysUsed = daysBeforeToday - workoutsBeforeToday;
-  const weekRestDaysRemaining = Math.max(0, WEEKLY_REST_ALLOWANCE - weekRestDaysUsed);
+  const weekRestDaysAllowance = smartStreak.currentWeekRestAllowance;
+  const weekRestDaysRemaining = Math.max(0, weekRestDaysAllowance - weekRestDaysUsed);
   const weekWorkoutDaysRemaining = Math.max(0, WEEKLY_WORKOUT_TARGET - weekWorkoutDays);
   const daysRemainingAfterToday = Math.max(0, dayDistance(today, parseDateKey(currentWeekEndKey)));
   const availableWorkoutDays = daysRemainingAfterToday + (todayDone ? 0 : 1);
   const currentWeekFulfilled = weekWorkoutDays >= WEEKLY_WORKOUT_TARGET;
   const currentWeekViable =
     currentWeekFulfilled ||
-    (weekRestDaysUsed <= WEEKLY_REST_ALLOWANCE && weekWorkoutDaysRemaining <= availableWorkoutDays);
+    (weekRestDaysUsed <= weekRestDaysAllowance && weekWorkoutDaysRemaining <= availableWorkoutDays);
 
   return {
     ...smartStreak,
@@ -422,6 +449,7 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
     weekWorkoutDaysRemaining,
     weekRestDaysUsed,
     weekRestDaysRemaining,
+    weekRestDaysAllowance,
     weekDayStates: buildCurrentWeekDayStates(dates, today, smartStreak.currentStreakStartDate),
     currentWeekFulfilled,
     currentWeekViable,
@@ -532,6 +560,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     weekWorkoutDaysRemaining: WEEKLY_WORKOUT_TARGET,
     weekRestDaysUsed: 0,
     weekRestDaysRemaining: WEEKLY_REST_ALLOWANCE,
+    weekRestDaysAllowance: WEEKLY_REST_ALLOWANCE,
     weekDayStates: buildCurrentWeekDayStates(new Set<string>(), today, null),
     currentWeekFulfilled: false,
     currentWeekViable: true,
@@ -846,7 +875,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   <CircleOff size={15} />
                   Отдых
                 </dt>
-                <dd>{selectedStatsValue.weekRestDaysRemaining}/{WEEKLY_REST_ALLOWANCE}</dd>
+                <dd>{selectedStatsValue.weekRestDaysRemaining}/{selectedStatsValue.weekRestDaysAllowance}</dd>
               </div>
             </dl>
           </article>
