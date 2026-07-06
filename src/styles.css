@@ -2200,7 +2200,8 @@ select:focus-visible {
   box-shadow: inset 0 -3px 0 var(--activity-color);
 }
 
-.sport-run-distance-form {
+.sport-run-distance-form,
+.sport-rep-max-form {
   display: grid;
   gap: 8px;
   padding: 12px;
@@ -2209,7 +2210,13 @@ select:focus-visible {
   background: #fbfdff;
 }
 
-.sport-run-distance-form label {
+.sport-rep-max-forms {
+  display: grid;
+  gap: 8px;
+}
+
+.sport-run-distance-form label,
+.sport-rep-max-form label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2218,18 +2225,21 @@ select:focus-visible {
   font-weight: 800;
 }
 
-.sport-run-distance-form label svg {
+.sport-run-distance-form label svg,
+.sport-rep-max-form label svg {
   color: var(--primary);
 }
 
-.sport-run-distance-row {
+.sport-run-distance-row,
+.sport-rep-max-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
 }
 
-.sport-run-distance-input-shell {
+.sport-run-distance-input-shell,
+.sport-rep-max-input-shell {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2242,12 +2252,14 @@ select:focus-visible {
   background: #fff;
 }
 
-.sport-run-distance-input-shell:focus-within {
+.sport-run-distance-input-shell:focus-within,
+.sport-rep-max-input-shell:focus-within {
   border-color: rgba(30, 64, 175, 0.58);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
 }
 
-.sport-run-distance-input-shell input {
+.sport-run-distance-input-shell input,
+.sport-rep-max-input-shell input {
   min-width: 0;
   width: 100%;
   border: 0;
@@ -2259,17 +2271,20 @@ select:focus-visible {
   font-weight: 700;
 }
 
-.sport-run-distance-input-shell input:disabled {
+.sport-run-distance-input-shell input:disabled,
+.sport-rep-max-input-shell input:disabled {
   cursor: wait;
 }
 
-.sport-run-distance-input-shell span {
+.sport-run-distance-input-shell span,
+.sport-rep-max-input-shell span {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
 }
 
-.sport-run-distance-save {
+.sport-run-distance-save,
+.sport-rep-max-save {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
@@ -2285,16 +2300,19 @@ select:focus-visible {
     opacity 200ms ease;
 }
 
-.sport-run-distance-save:hover {
+.sport-run-distance-save:hover,
+.sport-rep-max-save:hover {
   background: var(--ink-blue);
 }
 
-.sport-run-distance-save:disabled {
+.sport-run-distance-save:disabled,
+.sport-rep-max-save:disabled {
   cursor: default;
   opacity: 0.55;
 }
 
-.sport-run-distance-error {
+.sport-run-distance-error,
+.sport-rep-max-error {
   color: #991b1b;
   font-size: 12px;
   font-weight: 700;

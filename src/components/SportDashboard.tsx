@@ -25,6 +25,7 @@ import type {
   SportActivityKey,
   SportData,
   SportEntry,
+  SportMaxReps,
   SportUser
 } from "../types";
 
@@ -79,11 +80,27 @@ type SmartStreak = {
   currentWeekRestAllowance: number;
 };
 
+type RepMetricKey = keyof SportMaxReps;
+
+type SportRepMetric = {
+  key: RepMetricKey;
+  activityKey: SportActivityKey;
+  label: string;
+  Icon: LucideIcon;
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_LENGTH_DAYS = 7;
 const WEEKLY_WORKOUT_TARGET = 4;
 const WEEKLY_REST_ALLOWANCE = WEEK_LENGTH_DAYS - WEEKLY_WORKOUT_TARGET;
-const REST_CARRYOVER_USER_IDS = new Set(["diana"]);
+const MAX_REPS_LIMIT = 1000;
+const EMPTY_MAX_REPS: SportMaxReps = {
+  pullUps: null,
+  pushUps: null
+};
+const REST_CARRYOVER_START_DATES: Record<string, string> = {
+  diana: "2026-06-29"
+};
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
@@ -114,6 +131,21 @@ const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   pull_ups: "Подтягивания",
   push_ups: "Отжимания"
 };
+
+const REP_METRICS: SportRepMetric[] = [
+  {
+    key: "pullUps",
+    activityKey: "pull_ups",
+    label: "Максимум подтягиваний",
+    Icon: ChevronsUp
+  },
+  {
+    key: "pushUps",
+    activityKey: "push_ups",
+    label: "Максимум отжиманий",
+    Icon: MoveDown
+  }
+];
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -215,8 +247,42 @@ function parseDistanceDraft(value: string) {
   return { value: roundDistanceKm(parsed), error: null };
 }
 
+function formatMaxRepsDraft(value: number | null) {
+  return value === null ? "" : String(value);
+}
+
+function parseMaxRepsDraft(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: null, error: null };
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return { value: null, error: "Введите целое число больше 0." };
+  }
+
+  if (parsed > MAX_REPS_LIMIT) {
+    return { value: null, error: `Проверьте число: максимум ${MAX_REPS_LIMIT}.` };
+  }
+
+  return { value: parsed, error: null };
+}
+
 function sameDistance(left: number | null, right: number | null) {
   return left === right;
+}
+
+function maxRepsForActivities(activities: SportActivityKey[], maxReps: SportMaxReps): SportMaxReps {
+  return {
+    pullUps: activities.includes("pull_ups") ? maxReps.pullUps : null,
+    pushUps: activities.includes("push_ups") ? maxReps.pushUps : null
+  };
+}
+
+function formatMaxRepsAria(maxReps: SportMaxReps) {
+  const parts = [];
+  if (maxReps.pullUps !== null) parts.push(`${maxReps.pullUps} подтягиваний`);
+  if (maxReps.pushUps !== null) parts.push(`${maxReps.pushUps} отжиманий`);
+  return parts.length > 0 ? `, максимум: ${parts.join(", ")}` : "";
 }
 
 function buildCalendarCells(month: Date): CalendarCell[] {
@@ -267,19 +333,22 @@ function emptySmartStreak(): SmartStreak {
   };
 }
 
-function hasRestDayCarryover(user: SportUser) {
-  return REST_CARRYOVER_USER_IDS.has(user.id);
+function restDayCarryoverStartKey(user: SportUser) {
+  return REST_CARRYOVER_START_DATES[user.id] ?? null;
 }
 
 function calculateSmartDayStreak(
   dates: Set<string>,
   today: Date,
-  carriesRestDays: boolean
+  restCarryoverStartKey: string | null
 ): SmartStreak {
   const todayKey = dateKey(today);
   const workoutDates = [...dates].filter((key) => key <= todayKey).sort();
   if (workoutDates.length === 0) return emptySmartStreak();
 
+  const restCarryoverStartWeekKey = restCarryoverStartKey
+    ? dateKey(startOfWeek(parseDateKey(restCarryoverStartKey)))
+    : null;
   let cursor = parseDateKey(workoutDates[0]);
   let currentStreakDays = 0;
   let bestStreakDays = 0;
@@ -290,8 +359,12 @@ function calculateSmartDayStreak(
   let activeWeekRestDays = 0;
   let carriedRestDays = 0;
 
-  function activeWeekRestAllowance() {
-    return WEEKLY_REST_ALLOWANCE + (carriesRestDays ? carriedRestDays : 0);
+  function weekCanUseCarryover(weekKey: string | null) {
+    return Boolean(restCarryoverStartWeekKey && weekKey && weekKey >= restCarryoverStartWeekKey);
+  }
+
+  function activeWeekRestAllowance(weekKey = activeWeekKey) {
+    return WEEKLY_REST_ALLOWANCE + (weekCanUseCarryover(weekKey) ? carriedRestDays : 0);
   }
 
   function resetCurrentStreak() {
@@ -327,9 +400,10 @@ function calculateSmartDayStreak(
 
     const weekKey = dateKey(startOfWeek(cursor));
     if (weekKey !== activeWeekKey) {
-      if (carriesRestDays) {
-        carriedRestDays = Math.max(0, activeWeekRestAllowance() - activeWeekRestDays);
-      }
+      carriedRestDays =
+        weekCanUseCarryover(activeWeekKey) && weekCanUseCarryover(weekKey)
+          ? Math.max(0, activeWeekRestAllowance(activeWeekKey) - activeWeekRestDays)
+          : 0;
       activeWeekKey = weekKey;
       activeWeekRestDays = 0;
     }
@@ -411,7 +485,7 @@ function monthWorkoutLabel(value: number) {
 
 function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
-  const smartStreak = calculateSmartDayStreak(dates, today, hasRestDayCarryover(user));
+  const smartStreak = calculateSmartDayStreak(dates, today, restDayCarryoverStartKey(user));
   const todayKey = dateKey(today);
   const currentWeekStart = startOfWeek(today);
   const currentWeekKey = dateKey(currentWeekStart);
@@ -485,6 +559,14 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const [savingDate, setSavingDate] = useState<string | null>(null);
   const [runDistanceDraft, setRunDistanceDraft] = useState("");
   const [runDistanceError, setRunDistanceError] = useState<string | null>(null);
+  const [maxRepsDrafts, setMaxRepsDrafts] = useState<Record<RepMetricKey, string>>({
+    pullUps: "",
+    pushUps: ""
+  });
+  const [maxRepsErrors, setMaxRepsErrors] = useState<Record<RepMetricKey, string | null>>({
+    pullUps: null,
+    pushUps: null
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -528,7 +610,9 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const selectedDateEntry = selectedEntriesByDate.get(selectedDate) ?? null;
   const selectedDateActivities = selectedDateEntry?.activities ?? [];
   const selectedDateRunDistanceKm = selectedDateEntry?.runDistanceKm ?? null;
+  const selectedDateMaxReps = selectedDateEntry?.maxReps ?? EMPTY_MAX_REPS;
   const selectedDateHasRun = selectedDateActivities.includes("run");
+  const activeRepMetrics = REP_METRICS.filter((metric) => selectedDateActivities.includes(metric.activityKey));
   const selectedDateObject = parseDateKey(selectedDate);
   const availableActivities =
     selectedUser?.activityTypes
@@ -568,6 +652,13 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     lastWorkoutDate: null
   };
   const runDistanceParseResult = useMemo(() => parseDistanceDraft(runDistanceDraft), [runDistanceDraft]);
+  const maxRepsParseResults = useMemo(
+    () => ({
+      pullUps: parseMaxRepsDraft(maxRepsDrafts.pullUps),
+      pushUps: parseMaxRepsDraft(maxRepsDrafts.pushUps)
+    }),
+    [maxRepsDrafts]
+  );
   const runDistanceMessage = runDistanceError ?? runDistanceParseResult.error;
   const runDistanceDirty =
     selectedDateHasRun &&
@@ -579,10 +670,26 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     setRunDistanceError(null);
   }, [selectedDate, selectedUser?.id, selectedDateRunDistanceKm]);
 
-  async function saveSportDay(nextActivities: SportActivityKey[], nextRunDistanceKm: number | null) {
+  useEffect(() => {
+    setMaxRepsDrafts({
+      pullUps: formatMaxRepsDraft(selectedDateMaxReps.pullUps),
+      pushUps: formatMaxRepsDraft(selectedDateMaxReps.pushUps)
+    });
+    setMaxRepsErrors({
+      pullUps: null,
+      pushUps: null
+    });
+  }, [selectedDate, selectedUser?.id, selectedDateMaxReps.pullUps, selectedDateMaxReps.pushUps]);
+
+  async function saveSportDay(
+    nextActivities: SportActivityKey[],
+    nextRunDistanceKm: number | null,
+    nextMaxReps: SportMaxReps
+  ) {
     if (!selectedUser) return;
 
     const activities = sortActivitiesForUser(selectedUser, nextActivities);
+    const maxReps = maxRepsForActivities(activities, nextMaxReps);
     setSavingDate(selectedDate);
     setError(null);
     try {
@@ -590,7 +697,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
         userId: selectedUser.id,
         date: selectedDate,
         activities,
-        runDistanceKm: activities.includes("run") ? nextRunDistanceKm : null
+        runDistanceKm: activities.includes("run") ? nextRunDistanceKm : null,
+        maxReps
       });
       setData(response.data);
     } catch (saveError) {
@@ -601,7 +709,11 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   }
 
   async function saveActivities(nextActivities: SportActivityKey[]) {
-    await saveSportDay(nextActivities, nextActivities.includes("run") ? selectedDateRunDistanceKm : null);
+    await saveSportDay(
+      nextActivities,
+      nextActivities.includes("run") ? selectedDateRunDistanceKm : null,
+      selectedDateMaxReps
+    );
   }
 
   function saveRunDistance(event: FormEvent<HTMLFormElement>) {
@@ -615,7 +727,30 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     }
 
     setRunDistanceError(null);
-    void saveSportDay(selectedDateActivities, parsed.value);
+    void saveSportDay(selectedDateActivities, parsed.value, selectedDateMaxReps);
+  }
+
+  function saveMaxReps(metric: SportRepMetric, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDateActivities.includes(metric.activityKey)) return;
+
+    const parsed = parseMaxRepsDraft(maxRepsDrafts[metric.key]);
+    if (parsed.error) {
+      setMaxRepsErrors((current) => ({
+        ...current,
+        [metric.key]: parsed.error
+      }));
+      return;
+    }
+
+    setMaxRepsErrors((current) => ({
+      ...current,
+      [metric.key]: null
+    }));
+    void saveSportDay(selectedDateActivities, selectedDateRunDistanceKm, {
+      ...selectedDateMaxReps,
+      [metric.key]: parsed.value
+    });
   }
 
   function toggleActivity(activityKey: SportActivityKey) {
@@ -792,7 +927,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                     .map((activity) => activity.label)
                     .join(", ") || "без занятий"}${
                     entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
-                  }`}
+                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}`}
                 >
                   <span className="sport-day-number">{cell.date.getDate()}</span>
                   <span className="sport-day-activity-bars">
@@ -1006,6 +1141,64 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                 <span className="sport-run-distance-error">{runDistanceMessage}</span>
               ) : null}
             </form>
+          ) : null}
+
+          {activeRepMetrics.length > 0 ? (
+            <div className="sport-rep-max-forms" aria-label="Максимумы повторений">
+              {activeRepMetrics.map((metric) => {
+                const Icon = metric.Icon;
+                const parseResult = maxRepsParseResults[metric.key];
+                const message = maxRepsErrors[metric.key] ?? parseResult.error;
+                const dirty = !parseResult.error && parseResult.value !== selectedDateMaxReps[metric.key];
+
+                return (
+                  <form
+                    className="sport-rep-max-form"
+                    key={metric.key}
+                    onSubmit={(event) => saveMaxReps(metric, event)}
+                  >
+                    <label htmlFor={`sport-${metric.key}-max-reps`}>
+                      <Icon size={16} />
+                      <span>{metric.label}</span>
+                    </label>
+                    <div className="sport-rep-max-row">
+                      <div className="sport-rep-max-input-shell">
+                        <input
+                          id={`sport-${metric.key}-max-reps`}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={maxRepsDrafts[metric.key]}
+                          onChange={(event) => {
+                            setMaxRepsDrafts((current) => ({
+                              ...current,
+                              [metric.key]: event.target.value
+                            }));
+                            setMaxRepsErrors((current) => ({
+                              ...current,
+                              [metric.key]: null
+                            }));
+                          }}
+                          placeholder="0"
+                          disabled={savingDate !== null}
+                          aria-invalid={Boolean(message)}
+                        />
+                        <span>раз</span>
+                      </div>
+                      <button
+                        className="sport-rep-max-save"
+                        type="submit"
+                        disabled={savingDate !== null || !dirty}
+                      >
+                        <Check size={16} />
+                        <span>Сохранить</span>
+                      </button>
+                    </div>
+                    {message ? <span className="sport-rep-max-error">{message}</span> : null}
+                  </form>
+                );
+              })}
+            </div>
           ) : null}
 
           <div className="sport-day-summary">

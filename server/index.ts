@@ -311,10 +311,16 @@ type SportActivityCatalogEntry = {
   color: string;
 };
 
+type SportMaxReps = {
+  pullUps: number | null;
+  pushUps: number | null;
+};
+
 type SportEntry = {
   date: string;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
+  maxReps: SportMaxReps;
 };
 
 type SportUser = {
@@ -338,6 +344,7 @@ type SportDayUpdate = {
   date: string;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
+  maxReps: SportMaxReps;
 };
 
 const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
@@ -875,6 +882,67 @@ function sportRunDistanceFromUnknown(value: unknown, shouldThrow = false): numbe
   return round(distance, 2);
 }
 
+function sportMaxRepsFromUnknown(value: unknown, label: string, shouldThrow = false): number | null {
+  if (value === null || value === undefined) return null;
+
+  const normalized = typeof value === "string" ? value.trim() : value;
+  if (normalized === "") return null;
+
+  const reps = asNumber(normalized);
+  if (reps === null || !Number.isInteger(reps) || reps <= 0 || reps > 1000) {
+    if (shouldThrow) {
+      throw new Error(`${label} должен быть целым числом от 1 до 1000.`);
+    }
+    return null;
+  }
+
+  return reps;
+}
+
+function emptySportMaxReps(): SportMaxReps {
+  return {
+    pullUps: null,
+    pushUps: null
+  };
+}
+
+function sportRepValueFromEntry(rawEntry: Record<string, unknown>, nestedKeys: string[], topLevelKeys: string[]) {
+  const maxReps: Record<string, unknown> = isPlainObject(rawEntry.maxReps)
+    ? rawEntry.maxReps
+    : isPlainObject(rawEntry.max_reps)
+      ? rawEntry.max_reps
+      : {};
+
+  for (const key of nestedKeys) {
+    if (key in maxReps) return maxReps[key];
+  }
+
+  for (const key of topLevelKeys) {
+    if (key in rawEntry) return rawEntry[key];
+  }
+
+  return null;
+}
+
+function normalizeSportMaxReps(rawEntry: unknown, activities: SportActivityKey[]): SportMaxReps {
+  if (!isPlainObject(rawEntry)) return emptySportMaxReps();
+
+  return {
+    pullUps: activities.includes("pull_ups")
+      ? sportMaxRepsFromUnknown(
+          sportRepValueFromEntry(rawEntry, ["pullUps", "pull_ups"], ["pullUpsMaxReps", "pull_ups_max_reps"]),
+          "Максимум подтягиваний"
+        )
+      : null,
+    pushUps: activities.includes("push_ups")
+      ? sportMaxRepsFromUnknown(
+          sportRepValueFromEntry(rawEntry, ["pushUps", "push_ups"], ["pushUpsMaxReps", "push_ups_max_reps"]),
+          "Максимум отжиманий"
+        )
+      : null
+  };
+}
+
 function normalizeSportEntryValue(rawEntry: unknown, allowedActivities: SportActivityKey[]) {
   const rawActivities = isPlainObject(rawEntry) ? rawEntry.activities : rawEntry;
   const activities = normalizeSportActivities(rawActivities, allowedActivities);
@@ -882,10 +950,12 @@ function normalizeSportEntryValue(rawEntry: unknown, allowedActivities: SportAct
     activities.includes("run") && isPlainObject(rawEntry)
       ? sportRunDistanceFromUnknown(rawEntry.runDistanceKm ?? rawEntry.run_distance_km)
       : null;
+  const maxReps = normalizeSportMaxReps(rawEntry, activities);
 
   return {
     activities,
-    runDistanceKm
+    runDistanceKm,
+    maxReps
   };
 }
 
@@ -899,6 +969,31 @@ function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivit
     }))
     .filter((entry): entry is SportEntry => isDateKey(entry.date) && entry.activities.length > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function sportMaxRepsFromBody(body: Record<string, unknown>, activities: SportActivityKey[]): SportMaxReps {
+  const maxReps: Record<string, unknown> = isPlainObject(body.maxReps)
+    ? body.maxReps
+    : isPlainObject(body.max_reps)
+      ? body.max_reps
+      : {};
+
+  return {
+    pullUps: activities.includes("pull_ups")
+      ? sportMaxRepsFromUnknown(
+          maxReps.pullUps ?? maxReps.pull_ups ?? body.pullUpsMaxReps ?? body.pull_ups_max_reps,
+          "Максимум подтягиваний",
+          true
+        )
+      : null,
+    pushUps: activities.includes("push_ups")
+      ? sportMaxRepsFromUnknown(
+          maxReps.pushUps ?? maxReps.push_ups ?? body.pushUpsMaxReps ?? body.push_ups_max_reps,
+          "Максимум отжиманий",
+          true
+        )
+      : null
+  };
 }
 
 function loadSportRawFile() {
@@ -961,8 +1056,42 @@ function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
     activities,
     runDistanceKm: activities.includes("run")
       ? sportRunDistanceFromUnknown(body.runDistanceKm, true)
-      : null
+      : null,
+    maxReps: sportMaxRepsFromBody(body, activities)
   };
+}
+
+function hasSportMaxReps(maxReps: SportMaxReps) {
+  return maxReps.pullUps !== null || maxReps.pushUps !== null;
+}
+
+function sportEntryValueFromUpdate(update: SportDayUpdate) {
+  const maxRepsEntries = Object.entries({
+    pullUps: update.maxReps.pullUps,
+    pushUps: update.maxReps.pushUps
+  }).filter((entry): entry is [keyof SportMaxReps, number] => entry[1] !== null);
+
+  if (update.runDistanceKm === null && maxRepsEntries.length === 0) {
+    return update.activities;
+  }
+
+  const entry: {
+    activities: SportActivityKey[];
+    runDistanceKm?: number;
+    maxReps?: Partial<Record<keyof SportMaxReps, number>>;
+  } = {
+    activities: update.activities
+  };
+
+  if (update.runDistanceKm !== null) {
+    entry.runDistanceKm = update.runDistanceKm;
+  }
+
+  if (maxRepsEntries.length > 0) {
+    entry.maxReps = Object.fromEntries(maxRepsEntries) as Partial<Record<keyof SportMaxReps, number>>;
+  }
+
+  return entry;
 }
 
 function writeSportDay(update: SportDayUpdate) {
@@ -974,15 +1103,18 @@ function writeSportDay(update: SportDayUpdate) {
   const entries = isPlainObject(userRecord.entries) ? { ...userRecord.entries } : {};
 
   if (update.activities.length > 0) {
-    entries[update.date] = update.runDistanceKm === null
-      ? update.activities
-      : {
-          activities: update.activities,
-          runDistanceKm: update.runDistanceKm
-        };
+    entries[update.date] = sportEntryValueFromUpdate(update);
   } else {
     delete entries[update.date];
   }
+
+  const currentSchemaVersion =
+    typeof rawObject.schemaVersion === "number" ? rawObject.schemaVersion : 1;
+  const requiredSchemaVersion = hasSportMaxReps(update.maxReps)
+    ? 3
+    : update.runDistanceKm === null
+      ? 1
+      : 2;
 
   users[update.userId] = {
     ...userRecord,
@@ -991,7 +1123,7 @@ function writeSportDay(update: SportDayUpdate) {
 
   const nextRaw = {
     ...rawObject,
-    schemaVersion: update.runDistanceKm === null ? rawObject.schemaVersion ?? 1 : 2,
+    schemaVersion: Math.max(currentSchemaVersion, requiredSchemaVersion),
     users
   };
 

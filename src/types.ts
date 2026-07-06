@@ -184,10 +184,16 @@ export type SportActivityCatalogEntry = {
   color: string;
 };
 
+export type SportMaxReps = {
+  pullUps: number | null;
+  pushUps: number | null;
+};
+
 export type SportEntry = {
   date: string;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
+  maxReps: SportMaxReps;
 };
 
 export type SportUser = {

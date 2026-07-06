@@ -1,4 +1,10 @@
-import type { HealthDataResponse, MoneyRecordUpdate, SportActivityKey, SportDataResponse } from "./types";
+import type {
+  HealthDataResponse,
+  MoneyRecordUpdate,
+  SportActivityKey,
+  SportDataResponse,
+  SportMaxReps
+} from "./types";
 
 export async function fetchHealthData(signal?: AbortSignal): Promise<HealthDataResponse> {
   const response = await fetch("/api/health-data", { signal });
@@ -31,7 +37,13 @@ export async function fetchSportData(signal?: AbortSignal): Promise<SportDataRes
 }
 
 export async function updateSportDay(
-  input: { userId: string; date: string; activities: SportActivityKey[]; runDistanceKm?: number | null },
+  input: {
+    userId: string;
+    date: string;
+    activities: SportActivityKey[];
+    runDistanceKm?: number | null;
+    maxReps?: SportMaxReps;
+  },
   signal?: AbortSignal
 ) {
   const response = await fetch("/api/sport-data/day", {
