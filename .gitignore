@@ -9,3 +9,4 @@ data/
 *.log
 __pycache__/
 *.py[cod]
+/assets/

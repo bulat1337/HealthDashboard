@@ -1,18 +1,21 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import streakFlameActiveUrl from "../assets/duolingo-streak-flame-active.svg";
+import streakFlameIdleUrl from "../assets/duolingo-streak-flame-idle.svg";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Bike,
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsUp,
   CircleAlert,
   CircleOff,
   Dumbbell,
-  Flame,
   Footprints,
+  MoveDown,
   RefreshCw,
-  Target,
   Trophy,
   Users
 } from "lucide-react";
@@ -22,6 +25,7 @@ import type {
   SportActivityKey,
   SportData,
   SportEntry,
+  SportMaxReps,
   SportUser
 } from "../types";
 
@@ -31,10 +35,22 @@ type SportDashboardProps = {
 };
 
 type SportStats = {
-  currentStreak: number;
-  bestStreak: number;
+  currentStreakDays: number;
+  bestStreakDays: number;
+  currentStreakStartDate: string | null;
+  currentStreakWorkoutDays: number;
+  currentStreakRestDays: number;
   monthDays: number;
   monthActivities: number;
+  monthRunDistanceKm: number;
+  weekWorkoutDays: number;
+  weekWorkoutDaysRemaining: number;
+  weekRestDaysUsed: number;
+  weekRestDaysRemaining: number;
+  weekRestDaysAllowance: number;
+  weekDayStates: SportWeekDayState[];
+  currentWeekFulfilled: boolean;
+  currentWeekViable: boolean;
   todayDone: boolean;
   lastWorkoutDate: string | null;
 };
@@ -45,14 +61,91 @@ type CalendarCell = {
   inMonth: boolean;
 };
 
+type SportWeekDayStatus = "workout" | "rest" | "open" | "future";
+
+type SportWeekDayState = {
+  key: string;
+  label: string;
+  dayNumber: number;
+  status: SportWeekDayStatus;
+  isToday: boolean;
+};
+
+type SmartStreak = {
+  currentStreakDays: number;
+  bestStreakDays: number;
+  currentStreakStartDate: string | null;
+  currentStreakWorkoutDays: number;
+  currentStreakRestDays: number;
+  currentWeekRestAllowance: number;
+};
+
+type RepMetricKey = keyof SportMaxReps;
+
+type SportRepMetric = {
+  key: RepMetricKey;
+  activityKey: SportActivityKey;
+  label: string;
+  Icon: LucideIcon;
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_LENGTH_DAYS = 7;
+const WEEKLY_WORKOUT_TARGET = 4;
+const WEEKLY_REST_ALLOWANCE = WEEK_LENGTH_DAYS - WEEKLY_WORKOUT_TARGET;
+const MAX_REPS_LIMIT = 1000;
+const EMPTY_MAX_REPS: SportMaxReps = {
+  pullUps: null,
+  pushUps: null
+};
+const REST_CARRYOVER_START_DATES: Record<string, string> = {
+  diana: "2026-06-29"
+};
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   run: Footprints,
   pilates: Activity,
-  strength: Dumbbell
+  strength_lower: Dumbbell,
+  strength_upper: Dumbbell,
+  strength_whole: Dumbbell,
+  cycling: Bike,
+  pull_ups: ChevronsUp,
+  push_ups: MoveDown
 };
+
+const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
+  "strength_whole",
+  "strength_upper",
+  "strength_lower",
+];
+const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KEYS);
+const DEFAULT_STRENGTH_ACTIVITY_KEY: SportActivityKey = "strength_whole";
+const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
+  run: "Бег",
+  pilates: "Пилатес",
+  strength_lower: "Lower body",
+  strength_upper: "Upper body",
+  strength_whole: "Whole body",
+  cycling: "Велотренировка",
+  pull_ups: "Подтягивания",
+  push_ups: "Отжимания"
+};
+
+const REP_METRICS: SportRepMetric[] = [
+  {
+    key: "pullUps",
+    activityKey: "pull_ups",
+    label: "Максимум подтягиваний",
+    Icon: ChevronsUp
+  },
+  {
+    key: "pushUps",
+    activityKey: "push_ups",
+    label: "Максимум отжиманий",
+    Icon: MoveDown
+  }
+];
 
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -60,6 +153,12 @@ function startOfLocalDay(date: Date) {
 
 function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfWeek(date: Date) {
+  const local = startOfLocalDay(date);
+  const mondayOffset = (local.getDay() + 6) % WEEK_LENGTH_DAYS;
+  return addDays(local, -mondayOffset);
 }
 
 function addDays(date: Date, days: number) {
@@ -87,6 +186,14 @@ function previousDateKey(key: string) {
   return dateKey(addDays(parseDateKey(key), -1));
 }
 
+function nextDateKey(key: string) {
+  return dateKey(addDays(parseDateKey(key), 1));
+}
+
+function dayDistance(start: Date, end: Date) {
+  return Math.round((startOfLocalDay(end).getTime() - startOfLocalDay(start).getTime()) / DAY_MS);
+}
+
 function formatMonthLabel(date: Date) {
   return new Intl.DateTimeFormat("ru-RU", {
     month: "long",
@@ -110,6 +217,74 @@ function pluralRu(value: number, forms: [string, string, string]) {
   return forms[2];
 }
 
+function roundDistanceKm(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function formatDistanceKm(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function formatDistanceDraft(value: number | null) {
+  return value === null ? "" : formatDistanceKm(value);
+}
+
+function parseDistanceDraft(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: null, error: null };
+
+  const parsed = Number(trimmed.replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return { value: null, error: "Введите дистанцию больше 0 км." };
+  }
+
+  if (parsed > 1000) {
+    return { value: null, error: "Проверьте дистанцию: максимум 1000 км." };
+  }
+
+  return { value: roundDistanceKm(parsed), error: null };
+}
+
+function formatMaxRepsDraft(value: number | null) {
+  return value === null ? "" : String(value);
+}
+
+function parseMaxRepsDraft(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return { value: null, error: null };
+
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return { value: null, error: "Введите целое число больше 0." };
+  }
+
+  if (parsed > MAX_REPS_LIMIT) {
+    return { value: null, error: `Проверьте число: максимум ${MAX_REPS_LIMIT}.` };
+  }
+
+  return { value: parsed, error: null };
+}
+
+function sameDistance(left: number | null, right: number | null) {
+  return left === right;
+}
+
+function maxRepsForActivities(activities: SportActivityKey[], maxReps: SportMaxReps): SportMaxReps {
+  return {
+    pullUps: activities.includes("pull_ups") ? maxReps.pullUps : null,
+    pushUps: activities.includes("push_ups") ? maxReps.pushUps : null
+  };
+}
+
+function formatMaxRepsAria(maxReps: SportMaxReps) {
+  const parts = [];
+  if (maxReps.pullUps !== null) parts.push(`${maxReps.pullUps} подтягиваний`);
+  if (maxReps.pushUps !== null) parts.push(`${maxReps.pushUps} отжиманий`);
+  return parts.length > 0 ? `, максимум: ${parts.join(", ")}` : "";
+}
+
 function buildCalendarCells(month: Date): CalendarCell[] {
   const firstDay = startOfMonth(month);
   const mondayOffset = (firstDay.getDay() + 6) % 7;
@@ -126,59 +301,233 @@ function buildCalendarCells(month: Date): CalendarCell[] {
 }
 
 function entryMap(entries: SportEntry[]) {
-  return new Map(entries.map((entry) => [entry.date, entry.activities]));
+  return new Map(entries.map((entry) => [entry.date, entry]));
 }
 
 function activityDateSet(user: SportUser) {
   return new Set(user.entries.filter((entry) => entry.activities.length > 0).map((entry) => entry.date));
 }
 
-function calculateCurrentStreak(dates: Set<string>, todayKey: string) {
-  let anchor = todayKey;
-  if (!dates.has(anchor)) {
-    const yesterday = previousDateKey(todayKey);
-    if (!dates.has(yesterday)) return 0;
-    anchor = yesterday;
+function dateKeysBetween(startKey: string, endKey: string) {
+  const keys: string[] = [];
+  let cursor = startKey;
+  while (cursor <= endKey) {
+    keys.push(cursor);
+    cursor = nextDateKey(cursor);
   }
-
-  let count = 0;
-  let cursor = anchor;
-  while (dates.has(cursor)) {
-    count += 1;
-    cursor = previousDateKey(cursor);
-  }
-  return count;
+  return keys;
 }
 
-function calculateBestStreak(dates: Set<string>) {
-  const sorted = [...dates].sort();
-  let best = 0;
-  let current = 0;
-  let previous: string | null = null;
+function countWorkoutDays(dates: Set<string>, startKey: string, endKey: string) {
+  return dateKeysBetween(startKey, endKey).filter((key) => dates.has(key)).length;
+}
 
-  for (const key of sorted) {
-    current = previous && previousDateKey(key) === previous ? current + 1 : 1;
-    best = Math.max(best, current);
-    previous = key;
+function emptySmartStreak(): SmartStreak {
+  return {
+    currentStreakDays: 0,
+    bestStreakDays: 0,
+    currentStreakStartDate: null,
+    currentStreakWorkoutDays: 0,
+    currentStreakRestDays: 0,
+    currentWeekRestAllowance: WEEKLY_REST_ALLOWANCE
+  };
+}
+
+function restDayCarryoverStartKey(user: SportUser) {
+  return REST_CARRYOVER_START_DATES[user.id] ?? null;
+}
+
+function calculateSmartDayStreak(
+  dates: Set<string>,
+  today: Date,
+  restCarryoverStartKey: string | null
+): SmartStreak {
+  const todayKey = dateKey(today);
+  const workoutDates = [...dates].filter((key) => key <= todayKey).sort();
+  if (workoutDates.length === 0) return emptySmartStreak();
+
+  const restCarryoverStartWeekKey = restCarryoverStartKey
+    ? dateKey(startOfWeek(parseDateKey(restCarryoverStartKey)))
+    : null;
+  let cursor = parseDateKey(workoutDates[0]);
+  let currentStreakDays = 0;
+  let bestStreakDays = 0;
+  let currentStreakStartDate: string | null = null;
+  let currentStreakWorkoutDays = 0;
+  let currentStreakRestDays = 0;
+  let activeWeekKey: string | null = null;
+  let activeWeekRestDays = 0;
+  let carriedRestDays = 0;
+
+  function weekCanUseCarryover(weekKey: string | null) {
+    return Boolean(restCarryoverStartWeekKey && weekKey && weekKey >= restCarryoverStartWeekKey);
   }
 
-  return best;
+  function activeWeekRestAllowance(weekKey = activeWeekKey) {
+    return WEEKLY_REST_ALLOWANCE + (weekCanUseCarryover(weekKey) ? carriedRestDays : 0);
+  }
+
+  function resetCurrentStreak() {
+    currentStreakDays = 0;
+    currentStreakStartDate = null;
+    currentStreakWorkoutDays = 0;
+    currentStreakRestDays = 0;
+    activeWeekKey = null;
+    activeWeekRestDays = 0;
+    carriedRestDays = 0;
+  }
+
+  function startCurrentStreak(key: string, date: Date) {
+    currentStreakDays = 1;
+    currentStreakStartDate = key;
+    currentStreakWorkoutDays = 1;
+    currentStreakRestDays = 0;
+    activeWeekKey = dateKey(startOfWeek(date));
+    activeWeekRestDays = 0;
+    carriedRestDays = 0;
+  }
+
+  while (dateKey(cursor) <= todayKey) {
+    const key = dateKey(cursor);
+    const hasWorkout = dates.has(key);
+
+    if (currentStreakDays === 0) {
+      if (hasWorkout) startCurrentStreak(key, cursor);
+      bestStreakDays = Math.max(bestStreakDays, currentStreakDays);
+      cursor = addDays(cursor, 1);
+      continue;
+    }
+
+    const weekKey = dateKey(startOfWeek(cursor));
+    if (weekKey !== activeWeekKey) {
+      carriedRestDays =
+        weekCanUseCarryover(activeWeekKey) && weekCanUseCarryover(weekKey)
+          ? Math.max(0, activeWeekRestAllowance(activeWeekKey) - activeWeekRestDays)
+          : 0;
+      activeWeekKey = weekKey;
+      activeWeekRestDays = 0;
+    }
+
+    if (hasWorkout) {
+      currentStreakDays += 1;
+      currentStreakWorkoutDays += 1;
+    } else if (activeWeekRestDays < activeWeekRestAllowance()) {
+      currentStreakDays += 1;
+      currentStreakRestDays += 1;
+      activeWeekRestDays += 1;
+    } else {
+      resetCurrentStreak();
+    }
+
+    bestStreakDays = Math.max(bestStreakDays, currentStreakDays);
+    cursor = addDays(cursor, 1);
+  }
+
+  return {
+    currentStreakDays,
+    bestStreakDays,
+    currentStreakStartDate,
+    currentStreakWorkoutDays,
+    currentStreakRestDays,
+    currentWeekRestAllowance:
+      currentStreakDays > 0 && activeWeekKey === dateKey(startOfWeek(today))
+        ? activeWeekRestAllowance()
+        : WEEKLY_REST_ALLOWANCE
+  };
+}
+
+function buildCurrentWeekDayStates(
+  dates: Set<string>,
+  today: Date,
+  currentStreakStartDate: string | null
+): SportWeekDayState[] {
+  const todayKey = dateKey(today);
+  const weekStart = startOfWeek(today);
+
+  return WEEKDAY_LABELS.map((label, index) => {
+    const date = addDays(weekStart, index);
+    const key = dateKey(date);
+    const hasWorkout = dates.has(key);
+    const isPastOrToday = key <= todayKey;
+    const streakCoversDay = Boolean(currentStreakStartDate && key >= currentStreakStartDate);
+    const status: SportWeekDayStatus = hasWorkout
+      ? "workout"
+      : !isPastOrToday
+        ? "future"
+        : streakCoversDay
+          ? "rest"
+          : "open";
+
+    return {
+      key,
+      label,
+      dayNumber: date.getDate(),
+      status,
+      isToday: key === todayKey
+    };
+  });
+}
+
+function streakDayStatusLabel(status: SportWeekDayStatus) {
+  if (status === "workout") return "тренировка";
+  if (status === "rest") return "отдых в балансе";
+  if (status === "future") return "впереди";
+  return "ожидает тренировки";
+}
+
+function dayStreakLabel(value: number) {
+  return pluralRu(value, ["день", "дня", "дней"]);
+}
+
+function monthWorkoutLabel(value: number) {
+  return pluralRu(value, ["день", "дня", "дней"]);
 }
 
 function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
+  const smartStreak = calculateSmartDayStreak(dates, today, restDayCarryoverStartKey(user));
   const todayKey = dateKey(today);
+  const currentWeekStart = startOfWeek(today);
+  const currentWeekKey = dateKey(currentWeekStart);
+  const currentWeekEndKey = dateKey(addDays(currentWeekStart, WEEK_LENGTH_DAYS - 1));
   const monthPrefix = dateKey(startOfMonth(visibleMonth)).slice(0, 7);
   const monthEntries = user.entries.filter((entry) => entry.date.startsWith(monthPrefix));
+  const monthRunDistanceKm = roundDistanceKm(
+    monthEntries.reduce((sum, entry) => sum + (entry.runDistanceKm ?? 0), 0)
+  );
   const pastOrTodayEntries = user.entries.filter((entry) => entry.date <= todayKey);
   const lastWorkoutDate = pastOrTodayEntries[pastOrTodayEntries.length - 1]?.date ?? null;
+  const todayDone = dates.has(todayKey);
+  const daysBeforeToday = dayDistance(currentWeekStart, today);
+  const workoutsBeforeToday = daysBeforeToday > 0
+    ? countWorkoutDays(dates, currentWeekKey, previousDateKey(todayKey))
+    : 0;
+  const weekWorkoutDays = countWorkoutDays(dates, currentWeekKey, todayKey);
+  const weekRestDaysUsed = daysBeforeToday - workoutsBeforeToday;
+  const weekRestDaysAllowance = smartStreak.currentWeekRestAllowance;
+  const weekRestDaysRemaining = Math.max(0, weekRestDaysAllowance - weekRestDaysUsed);
+  const weekWorkoutDaysRemaining = Math.max(0, WEEKLY_WORKOUT_TARGET - weekWorkoutDays);
+  const daysRemainingAfterToday = Math.max(0, dayDistance(today, parseDateKey(currentWeekEndKey)));
+  const availableWorkoutDays = daysRemainingAfterToday + (todayDone ? 0 : 1);
+  const currentWeekFulfilled = weekWorkoutDays >= WEEKLY_WORKOUT_TARGET;
+  const currentWeekViable =
+    currentWeekFulfilled ||
+    (weekRestDaysUsed <= weekRestDaysAllowance && weekWorkoutDaysRemaining <= availableWorkoutDays);
 
   return {
-    currentStreak: calculateCurrentStreak(dates, todayKey),
-    bestStreak: calculateBestStreak(dates),
+    ...smartStreak,
     monthDays: monthEntries.length,
     monthActivities: monthEntries.reduce((sum, entry) => sum + entry.activities.length, 0),
-    todayDone: dates.has(todayKey),
+    monthRunDistanceKm,
+    weekWorkoutDays,
+    weekWorkoutDaysRemaining,
+    weekRestDaysUsed,
+    weekRestDaysRemaining,
+    weekRestDaysAllowance,
+    weekDayStates: buildCurrentWeekDayStates(dates, today, smartStreak.currentStreakStartDate),
+    currentWeekFulfilled,
+    currentWeekViable,
+    todayDone,
     lastWorkoutDate
   };
 }
@@ -192,14 +541,12 @@ function sortActivitiesForUser(user: SportUser, activities: SportActivityKey[]) 
   return user.activityTypes.filter((activity) => selected.has(activity));
 }
 
-function streakStatus(stats: SportStats) {
-  if (stats.todayDone) return "сегодня закрыт";
-  if (stats.currentStreak > 0) return "ждет отметку сегодня";
-  return "стрик готов к старту";
+function getStrengthActivity(activities: SportActivityKey[]) {
+  return activities.find((activity) => STRENGTH_ACTIVITY_KEY_SET.has(activity)) ?? null;
 }
 
-function monthWorkoutLabel(value: number) {
-  return pluralRu(value, ["день", "дня", "дней"]);
+function withoutStrengthActivities(activities: SportActivityKey[]) {
+  return activities.filter((activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity));
 }
 
 export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
@@ -210,6 +557,16 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingDate, setSavingDate] = useState<string | null>(null);
+  const [runDistanceDraft, setRunDistanceDraft] = useState("");
+  const [runDistanceError, setRunDistanceError] = useState<string | null>(null);
+  const [maxRepsDrafts, setMaxRepsDrafts] = useState<Record<RepMetricKey, string>>({
+    pullUps: "",
+    pushUps: ""
+  });
+  const [maxRepsErrors, setMaxRepsErrors] = useState<Record<RepMetricKey, string | null>>({
+    pullUps: null,
+    pushUps: null
+  });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -250,32 +607,98 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     return new Map(data.users.map((user) => [user.id, calculateSportStats(user, today, visibleMonth)]));
   }, [data, today, visibleMonth]);
 
-  const selectedDateActivities = selectedEntriesByDate.get(selectedDate) ?? [];
+  const selectedDateEntry = selectedEntriesByDate.get(selectedDate) ?? null;
+  const selectedDateActivities = selectedDateEntry?.activities ?? [];
+  const selectedDateRunDistanceKm = selectedDateEntry?.runDistanceKm ?? null;
+  const selectedDateMaxReps = selectedDateEntry?.maxReps ?? EMPTY_MAX_REPS;
+  const selectedDateHasRun = selectedDateActivities.includes("run");
+  const activeRepMetrics = REP_METRICS.filter((metric) => selectedDateActivities.includes(metric.activityKey));
   const selectedDateObject = parseDateKey(selectedDate);
   const availableActivities =
     selectedUser?.activityTypes
       .map((activityKey) => catalogByKey.get(activityKey))
       .filter((activity): activity is SportActivityCatalogEntry => Boolean(activity)) ?? [];
+  const availableStrengthActivities = STRENGTH_ACTIVITY_KEYS.map((activityKey) =>
+    availableActivities.find((activity) => activity.key === activityKey)
+  ).filter((activity): activity is SportActivityCatalogEntry => Boolean(activity));
+  const availablePrimaryActivities = availableActivities.filter(
+    (activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity.key)
+  );
+  const selectedStrengthActivity = getStrengthActivity(selectedDateActivities);
+  const defaultStrengthActivity =
+    availableStrengthActivities.find((activity) => activity.key === DEFAULT_STRENGTH_ACTIVITY_KEY) ??
+    availableStrengthActivities[0] ??
+    null;
+  const strengthColor = defaultStrengthActivity?.color ?? "#f59e0b";
   const selectedStats = selectedUser ? statsByUser.get(selectedUser.id) : null;
   const selectedStatsValue = selectedStats ?? {
-    currentStreak: 0,
-    bestStreak: 0,
+    currentStreakDays: 0,
+    bestStreakDays: 0,
+    currentStreakStartDate: null,
+    currentStreakWorkoutDays: 0,
+    currentStreakRestDays: 0,
     monthDays: 0,
     monthActivities: 0,
+    monthRunDistanceKm: 0,
+    weekWorkoutDays: 0,
+    weekWorkoutDaysRemaining: WEEKLY_WORKOUT_TARGET,
+    weekRestDaysUsed: 0,
+    weekRestDaysRemaining: WEEKLY_REST_ALLOWANCE,
+    weekRestDaysAllowance: WEEKLY_REST_ALLOWANCE,
+    weekDayStates: buildCurrentWeekDayStates(new Set<string>(), today, null),
+    currentWeekFulfilled: false,
+    currentWeekViable: true,
     todayDone: false,
     lastWorkoutDate: null
   };
+  const runDistanceParseResult = useMemo(() => parseDistanceDraft(runDistanceDraft), [runDistanceDraft]);
+  const maxRepsParseResults = useMemo(
+    () => ({
+      pullUps: parseMaxRepsDraft(maxRepsDrafts.pullUps),
+      pushUps: parseMaxRepsDraft(maxRepsDrafts.pushUps)
+    }),
+    [maxRepsDrafts]
+  );
+  const runDistanceMessage = runDistanceError ?? runDistanceParseResult.error;
+  const runDistanceDirty =
+    selectedDateHasRun &&
+    !runDistanceParseResult.error &&
+    !sameDistance(runDistanceParseResult.value, selectedDateRunDistanceKm);
 
-  async function saveActivities(nextActivities: SportActivityKey[]) {
+  useEffect(() => {
+    setRunDistanceDraft(formatDistanceDraft(selectedDateRunDistanceKm));
+    setRunDistanceError(null);
+  }, [selectedDate, selectedUser?.id, selectedDateRunDistanceKm]);
+
+  useEffect(() => {
+    setMaxRepsDrafts({
+      pullUps: formatMaxRepsDraft(selectedDateMaxReps.pullUps),
+      pushUps: formatMaxRepsDraft(selectedDateMaxReps.pushUps)
+    });
+    setMaxRepsErrors({
+      pullUps: null,
+      pushUps: null
+    });
+  }, [selectedDate, selectedUser?.id, selectedDateMaxReps.pullUps, selectedDateMaxReps.pushUps]);
+
+  async function saveSportDay(
+    nextActivities: SportActivityKey[],
+    nextRunDistanceKm: number | null,
+    nextMaxReps: SportMaxReps
+  ) {
     if (!selectedUser) return;
 
+    const activities = sortActivitiesForUser(selectedUser, nextActivities);
+    const maxReps = maxRepsForActivities(activities, nextMaxReps);
     setSavingDate(selectedDate);
     setError(null);
     try {
       const response = await updateSportDay({
         userId: selectedUser.id,
         date: selectedDate,
-        activities: sortActivitiesForUser(selectedUser, nextActivities)
+        activities,
+        runDistanceKm: activities.includes("run") ? nextRunDistanceKm : null,
+        maxReps
       });
       setData(response.data);
     } catch (saveError) {
@@ -283,6 +706,51 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     } finally {
       setSavingDate(null);
     }
+  }
+
+  async function saveActivities(nextActivities: SportActivityKey[]) {
+    await saveSportDay(
+      nextActivities,
+      nextActivities.includes("run") ? selectedDateRunDistanceKm : null,
+      selectedDateMaxReps
+    );
+  }
+
+  function saveRunDistance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDateHasRun) return;
+
+    const parsed = parseDistanceDraft(runDistanceDraft);
+    if (parsed.error) {
+      setRunDistanceError(parsed.error);
+      return;
+    }
+
+    setRunDistanceError(null);
+    void saveSportDay(selectedDateActivities, parsed.value, selectedDateMaxReps);
+  }
+
+  function saveMaxReps(metric: SportRepMetric, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedDateActivities.includes(metric.activityKey)) return;
+
+    const parsed = parseMaxRepsDraft(maxRepsDrafts[metric.key]);
+    if (parsed.error) {
+      setMaxRepsErrors((current) => ({
+        ...current,
+        [metric.key]: parsed.error
+      }));
+      return;
+    }
+
+    setMaxRepsErrors((current) => ({
+      ...current,
+      [metric.key]: null
+    }));
+    void saveSportDay(selectedDateActivities, selectedDateRunDistanceKm, {
+      ...selectedDateMaxReps,
+      [metric.key]: parsed.value
+    });
   }
 
   function toggleActivity(activityKey: SportActivityKey) {
@@ -293,6 +761,22 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
       selected.add(activityKey);
     }
     void saveActivities([...selected]);
+  }
+
+  function toggleStrengthActivity() {
+    if (!defaultStrengthActivity) return;
+
+    if (selectedStrengthActivity) {
+      void saveActivities(withoutStrengthActivities(selectedDateActivities));
+      return;
+    }
+
+    void saveActivities([...withoutStrengthActivities(selectedDateActivities), defaultStrengthActivity.key]);
+  }
+
+  function selectStrengthVariant(activityKey: SportActivityKey) {
+    if (selectedStrengthActivity === activityKey) return;
+    void saveActivities([...withoutStrengthActivities(selectedDateActivities), activityKey]);
   }
 
   function selectCalendarDate(cell: CalendarCell) {
@@ -357,7 +841,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               <span>
                 {selectedStats?.monthDays ?? 0} {monthWorkoutLabel(selectedStats?.monthDays ?? 0)} с занятиями ·{" "}
                 {selectedStats?.monthActivities ?? 0}{" "}
-                {pluralRu(selectedStats?.monthActivities ?? 0, ["тренировка", "тренировки", "тренировок"])}
+                {pluralRu(selectedStats?.monthActivities ?? 0, ["тренировка", "тренировки", "тренировок"])} ·{" "}
+                {formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)} км бега
               </span>
             </div>
             <div className="sport-month-nav" aria-label="Месяц">
@@ -384,7 +869,19 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
 
           <div className="sport-legend" aria-label="Типы спорта">
-            {availableActivities.map((activity) => {
+            {availableStrengthActivities.length > 0 ? (
+              <span className="sport-legend-strength">
+                <span className="sport-legend-swatch-stack" aria-hidden="true">
+                  {availableStrengthActivities.map((activity) => (
+                    <i key={activity.key} style={{ backgroundColor: activity.color }} />
+                  ))}
+                </span>
+                <Dumbbell size={15} />
+                <span>Силовая</span>
+                <small>whole / upper / lower</small>
+              </span>
+            ) : null}
+            {availablePrimaryActivities.map((activity) => {
               const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
               return (
                 <span key={activity.key}>
@@ -404,7 +901,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
 
           <div className="sport-calendar-grid">
             {calendarCells.map((cell) => {
-              const activities = selectedEntriesByDate.get(cell.key) ?? [];
+              const entry = selectedEntriesByDate.get(cell.key);
+              const activities = entry?.activities ?? [];
               const isToday = cell.key === dateKey(today);
               const isSelected = cell.key === selectedDate;
               const activityDetails = activities
@@ -427,7 +925,9 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   onClick={() => selectCalendarDate(cell)}
                   aria-label={`${formatLongDate(cell.date)}: ${activityDetails
                     .map((activity) => activity.label)
-                    .join(", ") || "без занятий"}`}
+                    .join(", ") || "без занятий"}${
+                    entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
+                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}`}
                 >
                   <span className="sport-day-number">{cell.date.getDate()}</span>
                   <span className="sport-day-activity-bars">
@@ -442,36 +942,75 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
         </article>
 
         <aside className="sport-side-column">
-          <article className="panel sport-streak-card sport-streak-panel" aria-label="Стрик выбранного пользователя">
-            <div className="sport-streak-card-top">
-              <span className="sport-flame-circle">
-                <Flame size={22} />
-              </span>
-              <div>
-                <strong>{selectedUser?.name ?? "Спорт"}</strong>
-                <span>{streakStatus(selectedStatsValue)}</span>
+          <article
+            className={[
+              "panel sport-streak-card sport-streak-panel",
+              selectedStatsValue.currentStreakDays > 0 ? "active" : "idle"
+            ].join(" ")}
+            aria-label="Стрик выбранного пользователя"
+          >
+            <div className="sport-streak-main">
+              <div className="sport-streak-copy">
+                <span className="sport-streak-eyebrow">Стрик</span>
+                <div className="sport-streak-value">
+                  <strong>{selectedStatsValue.currentStreakDays}</strong>
+                  <span>{dayStreakLabel(selectedStatsValue.currentStreakDays)} подряд</span>
+                </div>
+              </div>
+
+              <div className="sport-streak-stage" aria-hidden="true">
+                <span
+                  key={`${selectedUser?.id ?? "sport"}-${selectedStatsValue.currentStreakDays}`}
+                  className="sport-streak-flame-pop"
+                >
+                  <span className="sport-streak-flame-burn">
+                    <img
+                      className="sport-streak-flame-image"
+                      src={selectedStatsValue.currentStreakDays > 0 ? streakFlameActiveUrl : streakFlameIdleUrl}
+                      alt=""
+                    />
+                    {selectedStatsValue.currentStreakDays > 0 ? (
+                      <img className="sport-streak-flame-glow" src={streakFlameActiveUrl} alt="" />
+                    ) : null}
+                  </span>
+                </span>
               </div>
             </div>
-            <div className="sport-streak-value">
-              <strong>{selectedStatsValue.currentStreak}</strong>
-              <span>
-                {pluralRu(selectedStatsValue.currentStreak, ["день", "дня", "дней"])} подряд
-              </span>
+
+            <div className="sport-streak-week" aria-label="Текущая неделя стрика">
+              {selectedStatsValue.weekDayStates.map((day) => (
+                <span
+                  key={day.key}
+                  className={[
+                    "sport-streak-weekday",
+                    day.status,
+                    day.isToday ? "today" : ""
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  title={`${formatLongDate(parseDateKey(day.key))}: ${streakDayStatusLabel(day.status)}`}
+                  aria-label={`${day.label}, ${day.dayNumber}: ${streakDayStatusLabel(day.status)}`}
+                >
+                  <small>{day.label}</small>
+                  <b>{day.dayNumber}</b>
+                </span>
+              ))}
             </div>
+
             <dl className="sport-streak-facts">
               <div>
                 <dt>
                   <Trophy size={15} />
                   Лучший
                 </dt>
-                <dd>{selectedStatsValue.bestStreak}</dd>
+                <dd>{selectedStatsValue.bestStreakDays}</dd>
               </div>
               <div>
                 <dt>
-                  <Target size={15} />
-                  Месяц
+                  <CircleOff size={15} />
+                  Отдых
                 </dt>
-                <dd>{selectedStatsValue.monthDays}</dd>
+                <dd>{selectedStatsValue.weekRestDaysRemaining}/{selectedStatsValue.weekRestDaysAllowance}</dd>
               </div>
             </dl>
           </article>
@@ -488,12 +1027,69 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
 
           <div className="sport-activity-actions">
-            {availableActivities.map((activity) => {
+            {defaultStrengthActivity ? (
+              <div
+                className={[
+                  "sport-strength-group",
+                  selectedStrengthActivity ? "active" : ""
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                style={{ "--activity-color": strengthColor } as CSSProperties}
+              >
+                <button
+                  className={selectedStrengthActivity ? "sport-strength-toggle active" : "sport-strength-toggle"}
+                  type="button"
+                  onClick={toggleStrengthActivity}
+                  disabled={savingDate !== null}
+                  aria-pressed={Boolean(selectedStrengthActivity)}
+                  aria-label={`Силовая: ${
+                    selectedStrengthActivity
+                      ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
+                      : "Whole body по умолчанию"
+                  }`}
+                >
+                  <Dumbbell size={18} />
+                  <span className="sport-strength-label">
+                    <strong>Силовая</strong>
+                    <small>
+                      {selectedStrengthActivity
+                        ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
+                        : "Whole body по умолчанию"}
+                    </small>
+                  </span>
+                  {selectedStrengthActivity ? <Check size={17} /> : null}
+                </button>
+
+                {selectedStrengthActivity ? (
+                  <div className="sport-strength-variants" aria-label="Уточнение силовой тренировки">
+                    {availableStrengthActivities.map((activity) => {
+                      const checked = selectedStrengthActivity === activity.key;
+                      return (
+                        <button
+                          className={checked ? "active" : ""}
+                          key={activity.key}
+                          type="button"
+                          onClick={() => selectStrengthVariant(activity.key)}
+                          disabled={savingDate !== null}
+                          aria-pressed={checked}
+                          style={{ "--activity-color": activity.color } as CSSProperties}
+                        >
+                          {STRENGTH_VARIANT_LABELS[activity.key]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {availablePrimaryActivities.map((activity) => {
               const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
               const checked = selectedDateActivities.includes(activity.key);
               return (
                 <button
-                  className={checked ? "active" : ""}
+                  className={checked ? "sport-activity-action active" : "sport-activity-action"}
                   key={activity.key}
                   type="button"
                   onClick={() => toggleActivity(activity.key)}
@@ -509,6 +1105,102 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             })}
           </div>
 
+          {selectedDateHasRun ? (
+            <form className="sport-run-distance-form" onSubmit={saveRunDistance}>
+              <label htmlFor="sport-run-distance">
+                <Footprints size={16} />
+                <span>Дистанция забега</span>
+              </label>
+              <div className="sport-run-distance-row">
+                <div className="sport-run-distance-input-shell">
+                  <input
+                    id="sport-run-distance"
+                    type="text"
+                    inputMode="decimal"
+                    value={runDistanceDraft}
+                    onChange={(event) => {
+                      setRunDistanceDraft(event.target.value);
+                      setRunDistanceError(null);
+                    }}
+                    placeholder="0,00"
+                    disabled={savingDate !== null}
+                    aria-invalid={Boolean(runDistanceMessage)}
+                  />
+                  <span>км</span>
+                </div>
+                <button
+                  className="sport-run-distance-save"
+                  type="submit"
+                  disabled={savingDate !== null || !runDistanceDirty}
+                >
+                  <Check size={16} />
+                  <span>Сохранить</span>
+                </button>
+              </div>
+              {runDistanceMessage ? (
+                <span className="sport-run-distance-error">{runDistanceMessage}</span>
+              ) : null}
+            </form>
+          ) : null}
+
+          {activeRepMetrics.length > 0 ? (
+            <div className="sport-rep-max-forms" aria-label="Максимумы повторений">
+              {activeRepMetrics.map((metric) => {
+                const Icon = metric.Icon;
+                const parseResult = maxRepsParseResults[metric.key];
+                const message = maxRepsErrors[metric.key] ?? parseResult.error;
+                const dirty = !parseResult.error && parseResult.value !== selectedDateMaxReps[metric.key];
+
+                return (
+                  <form
+                    className="sport-rep-max-form"
+                    key={metric.key}
+                    onSubmit={(event) => saveMaxReps(metric, event)}
+                  >
+                    <label htmlFor={`sport-${metric.key}-max-reps`}>
+                      <Icon size={16} />
+                      <span>{metric.label}</span>
+                    </label>
+                    <div className="sport-rep-max-row">
+                      <div className="sport-rep-max-input-shell">
+                        <input
+                          id={`sport-${metric.key}-max-reps`}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={maxRepsDrafts[metric.key]}
+                          onChange={(event) => {
+                            setMaxRepsDrafts((current) => ({
+                              ...current,
+                              [metric.key]: event.target.value
+                            }));
+                            setMaxRepsErrors((current) => ({
+                              ...current,
+                              [metric.key]: null
+                            }));
+                          }}
+                          placeholder="0"
+                          disabled={savingDate !== null}
+                          aria-invalid={Boolean(message)}
+                        />
+                        <span>раз</span>
+                      </div>
+                      <button
+                        className="sport-rep-max-save"
+                        type="submit"
+                        disabled={savingDate !== null || !dirty}
+                      >
+                        <Check size={16} />
+                        <span>Сохранить</span>
+                      </button>
+                    </div>
+                    {message ? <span className="sport-rep-max-error">{message}</span> : null}
+                  </form>
+                );
+              })}
+            </div>
+          ) : null}
+
           <div className="sport-day-summary">
             <div>
               <strong>{selectedDateActivities.length}</strong>
@@ -517,8 +1209,12 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               </span>
             </div>
             <div>
-              <strong>{selectedStats?.currentStreak ?? 0}</strong>
-              <span>стрик {selectedUser?.name ?? ""}</span>
+              <strong>{selectedStats?.currentStreakDays ?? 0}</strong>
+              <span>дневный стрик</span>
+            </div>
+            <div>
+              <strong>{formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)}</strong>
+              <span>км бега за месяц</span>
             </div>
           </div>
 

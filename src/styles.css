@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Fira+Code:wght@500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap");
 
 :root {
   color-scheme: light;
@@ -308,12 +308,11 @@ button {
 .relationship-title-block h2 {
   margin: 0;
   color: var(--romance-ink);
-  font-family: "Fira Sans", Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: 56px;
-  font-weight: 800;
-  line-height: 1.03;
+  font-family: "Caveat", "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(58px, 7vw, 92px);
+  font-weight: 700;
+  line-height: 0.95;
   letter-spacing: 0;
-  overflow-wrap: anywhere;
 }
 
 .relationship-title-block p {
@@ -388,7 +387,7 @@ button {
 }
 
 .relationship-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 0;
 }
 
@@ -410,6 +409,10 @@ button {
   background: var(--primary);
 }
 
+.relationship-tile.tone-green::before {
+  background: var(--green);
+}
+
 .relationship-tile.tone-rose svg,
 .relationship-tile.tone-rose strong {
   color: var(--romance-primary);
@@ -425,17 +428,24 @@ button {
   color: var(--primary);
 }
 
+.relationship-tile.tone-green svg,
+.relationship-tile.tone-green strong {
+  color: var(--green);
+}
+
 .relationship-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 0.82fr) minmax(0, 1.18fr);
   gap: 18px;
 }
 
-.relationship-progress-panel {
+.relationship-progress-panel,
+.relationship-timeline-panel {
   padding: 20px;
 }
 
-.relationship-progress-panel .panel-heading svg {
+.relationship-progress-panel .panel-heading svg,
+.relationship-timeline-panel .panel-heading svg {
   color: var(--romance-primary);
 }
 
@@ -475,6 +485,50 @@ button {
 .relationship-progress-labels span {
   color: var(--muted);
   text-align: right;
+}
+
+.relationship-timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.relationship-timeline-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.relationship-timeline-item > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(219, 39, 119, 0.18);
+  border-radius: 8px;
+  background: var(--romance-soft);
+  color: var(--romance-primary);
+}
+
+.relationship-timeline-item div {
+  min-width: 0;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.relationship-timeline-item:last-child div {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.relationship-timeline-item strong {
+  color: var(--romance-ink);
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.relationship-timeline-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
 }
 
 @keyframes heartbeat {
@@ -1530,76 +1584,226 @@ select:focus-visible {
 }
 
 .sport-streak-card {
-  appearance: none;
+  --duo-green: #58cc02;
+  --duo-green-dark: #58a700;
+  --duo-orange: #ff9600;
+  --duo-yellow: #ffc800;
+  --duo-red: #ff4b4b;
+  --duo-blue: #1cb0f6;
+  --duo-swan: #e5e5e5;
+  --duo-eel: #3c3c3c;
+  --duo-wolf: #777777;
+  position: relative;
+  overflow: hidden;
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: 16px;
+  padding: 16px 8px 8px;
+  border: 2px solid var(--duo-swan);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: none;
+  color: var(--duo-eel);
   text-align: left;
-  transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease,
-    transform 200ms ease;
 }
 
-.sport-streak-panel {
-  border-color: rgba(245, 158, 11, 0.55);
-  box-shadow: 0 18px 42px rgba(245, 158, 11, 0.16);
+.sport-streak-card::after {
+  display: none;
 }
 
-.sport-streak-card-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.sport-streak-panel.active {
+  border-color: var(--duo-swan);
 }
 
-.sport-flame-circle {
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
+.sport-streak-panel.idle {
+  border-color: var(--duo-swan);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.sport-streak-main {
+  position: relative;
+  z-index: 1;
   display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #fffbeb;
-  color: var(--amber);
-  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.22);
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  min-height: 112px;
+  gap: 16px;
+  padding: 0 8px;
 }
 
-.sport-streak-card-top div {
+.sport-streak-copy {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 10px;
 }
 
-.sport-streak-card-top strong {
-  color: var(--ink-blue);
-  font-size: 18px;
-}
-
-.sport-streak-card-top span {
-  color: var(--muted);
+.sport-streak-eyebrow {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--duo-orange);
   font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .sport-streak-value {
   display: flex;
-  align-items: end;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .sport-streak-value strong {
-  color: var(--ink-blue);
-  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: clamp(46px, 7vw, 72px);
-  line-height: 0.9;
+  color: var(--duo-orange);
+  font-family: "Fira Sans", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 0.95;
+  animation: sport-duolingo-streak-pop 400ms ease-in-out forwards;
 }
 
 .sport-streak-value span {
-  padding-bottom: 7px;
+  max-width: 140px;
+  padding-bottom: 0;
+  color: var(--duo-eel);
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.08;
+}
+
+.sport-streak-stage {
+  position: relative;
+  width: 96px;
+  height: 112px;
+}
+
+.sport-streak-flame-pop {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: 64px;
+  height: 77px;
+  transform-origin: 50% 82%;
+  animation: sport-duolingo-streak-pop 400ms ease-in-out forwards;
+  will-change: transform, opacity;
+}
+
+.sport-streak-flame-burn {
+  position: relative;
+  display: block;
+  width: 64px;
+  height: 77px;
+  transform-origin: 50% 86%;
+  will-change: transform;
+}
+
+.sport-streak-flame-image,
+.sport-streak-flame-glow {
+  display: block;
+  width: 64px;
+  height: 77px;
+  object-fit: contain;
+}
+
+.sport-streak-flame-glow {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  filter: blur(2px) saturate(1.2);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  transform-origin: 50% 86%;
+  will-change: opacity, transform;
+}
+
+.sport-streak-panel.active .sport-streak-flame-burn {
+  animation: sport-duolingo-flame-burn 1180ms ease-in-out 420ms infinite;
+}
+
+.sport-streak-panel.active .sport-streak-flame-glow {
+  animation: sport-duolingo-flame-glow 1180ms ease-in-out 420ms infinite;
+}
+
+.sport-streak-week {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid var(--duo-swan);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.sport-streak-weekday {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  padding: 5px 3px 6px;
+  border: 2px solid #e2e8f0;
+  border-bottom-width: 4px;
+  border-radius: 8px;
+  background: #ffffff;
   color: var(--muted);
-  font-weight: 700;
+  text-align: center;
+}
+
+.sport-streak-weekday small {
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.sport-streak-weekday b {
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.sport-streak-weekday.workout {
+  border-color: var(--duo-green);
+  border-bottom-color: var(--duo-green-dark);
+  background: #ecfccb;
+  color: #365314;
+}
+
+.sport-streak-weekday.rest {
+  border-color: #7dd3fc;
+  border-bottom-color: var(--duo-blue);
+  background: #eff6ff;
+  color: #075985;
+}
+
+.sport-streak-weekday.open {
+  border-color: #fed7aa;
+  border-bottom-color: #fb923c;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.sport-streak-weekday.future {
+  border-color: #e2e8f0;
+  border-bottom-color: #cbd5e1;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.sport-streak-weekday.today {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
 }
 
 .sport-streak-facts {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -1609,9 +1813,10 @@ select:focus-visible {
 .sport-streak-facts div {
   min-width: 0;
   padding: 10px;
-  border: 1px solid var(--line);
+  border: 2px solid #e2e8f0;
+  border-bottom-width: 4px;
   border-radius: 8px;
-  background: #fbfdff;
+  background: #ffffff;
 }
 
 .sport-streak-facts dt {
@@ -1621,6 +1826,7 @@ select:focus-visible {
   margin-bottom: 4px;
   color: var(--muted);
   font-size: 12px;
+  font-weight: 800;
 }
 
 .sport-streak-facts dd {
@@ -1628,7 +1834,60 @@ select:focus-visible {
   color: var(--ink);
   font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 800;
+}
+
+@keyframes sport-duolingo-streak-pop {
+  0% {
+    opacity: 0;
+    transform: scale3d(0.7, 0.7, 1);
+  }
+  33% {
+    opacity: 1;
+    transform: scale3d(1.1, 1.1, 1);
+  }
+  66% {
+    transform: scale3d(0.9, 0.9, 1);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sport-duolingo-flame-burn {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.5deg) scale3d(1, 1, 1);
+  }
+  18% {
+    transform: translateY(-1px) rotate(0.7deg) scale3d(0.985, 1.025, 1);
+  }
+  42% {
+    transform: translateY(0.5px) rotate(-0.3deg) scale3d(1.018, 0.99, 1);
+  }
+  68% {
+    transform: translateY(-0.6px) rotate(0.45deg) scale3d(0.995, 1.018, 1);
+  }
+}
+
+@keyframes sport-duolingo-flame-glow {
+  0%,
+  100% {
+    opacity: 0.08;
+    transform: scale3d(0.98, 0.98, 1);
+  }
+  18% {
+    opacity: 0.18;
+    transform: scale3d(1.035, 1.035, 1);
+  }
+  42% {
+    opacity: 0.12;
+    transform: scale3d(0.99, 1.02, 1);
+  }
+  68% {
+    opacity: 0.22;
+    transform: scale3d(1.04, 1.03, 1);
+  }
 }
 
 .sport-control-band {
@@ -1681,7 +1940,7 @@ select:focus-visible {
   margin-bottom: 14px;
 }
 
-.sport-legend span {
+.sport-legend > span {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1694,11 +1953,32 @@ select:focus-visible {
   font-weight: 700;
 }
 
-.sport-legend i {
+.sport-legend i,
+.sport-legend-swatch-stack i {
   width: 10px;
   height: 10px;
   flex: 0 0 auto;
   border-radius: 999px;
+}
+
+.sport-legend .sport-legend-strength {
+  gap: 8px;
+}
+
+.sport-legend-strength small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sport-legend-swatch-stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sport-legend-swatch-stack i + i {
+  margin-left: -3px;
+  box-shadow: 0 0 0 2px #fbfdff;
 }
 
 .sport-weekdays,
@@ -1804,7 +2084,8 @@ select:focus-visible {
   gap: 10px;
 }
 
-.sport-activity-actions button {
+.sport-activity-action,
+.sport-strength-toggle {
   --activity-color: var(--primary);
   min-width: 0;
   min-height: 48px;
@@ -1824,34 +2105,222 @@ select:focus-visible {
     background-color 200ms ease;
 }
 
-.sport-activity-actions button:hover {
+.sport-activity-action:hover,
+.sport-strength-toggle:hover {
   border-color: var(--line-strong);
   background: #fbfdff;
 }
 
-.sport-activity-actions button.active {
+.sport-activity-action.active,
+.sport-strength-toggle.active {
   border-color: var(--activity-color);
   background: #fbfdff;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.07);
 }
 
-.sport-activity-actions button:disabled {
+.sport-activity-action:disabled,
+.sport-strength-toggle:disabled,
+.sport-strength-variants button:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-.sport-activity-actions button svg:first-child {
+.sport-activity-action svg:first-child,
+.sport-strength-toggle svg:first-child {
   color: var(--activity-color);
 }
 
-.sport-activity-actions button span {
+.sport-activity-action span {
   min-width: 0;
+  font-weight: 700;
+}
+
+.sport-strength-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sport-strength-label {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.sport-strength-label strong {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.1;
+}
+
+.sport-strength-label small {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.sport-strength-variants {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-left: 42px;
+}
+
+.sport-strength-variants button {
+  --activity-color: #f59e0b;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.sport-strength-variants button:hover {
+  border-color: var(--line-strong);
+  background: #fbfdff;
+}
+
+.sport-strength-variants button.active {
+  border-color: var(--activity-color);
+  color: var(--ink);
+  background: #fffaf2;
+  box-shadow: inset 0 -3px 0 var(--activity-color);
+}
+
+.sport-run-distance-form,
+.sport-rep-max-form {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.sport-rep-max-forms {
+  display: grid;
+  gap: 8px;
+}
+
+.sport-run-distance-form label,
+.sport-rep-max-form label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-blue);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sport-run-distance-form label svg,
+.sport-rep-max-form label svg {
+  color: var(--primary);
+}
+
+.sport-run-distance-row,
+.sport-rep-max-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.sport-run-distance-input-shell,
+.sport-rep-max-input-shell {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sport-run-distance-input-shell:focus-within,
+.sport-rep-max-input-shell:focus-within {
+  border-color: rgba(30, 64, 175, 0.58);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+}
+
+.sport-run-distance-input-shell input,
+.sport-rep-max-input-shell input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-family: "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.sport-run-distance-input-shell input:disabled,
+.sport-rep-max-input-shell input:disabled {
+  cursor: wait;
+}
+
+.sport-run-distance-input-shell span,
+.sport-rep-max-input-shell span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sport-run-distance-save,
+.sport-rep-max-save {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  transition:
+    background-color 200ms ease,
+    opacity 200ms ease;
+}
+
+.sport-run-distance-save:hover,
+.sport-rep-max-save:hover {
+  background: var(--ink-blue);
+}
+
+.sport-run-distance-save:disabled,
+.sport-rep-max-save:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sport-run-distance-error,
+.sport-rep-max-error {
+  color: #991b1b;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .sport-day-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -2041,12 +2510,13 @@ select:focus-visible {
   }
 
   .relationship-story-panel,
-  .relationship-progress-panel {
+  .relationship-progress-panel,
+  .relationship-timeline-panel {
     padding: 18px;
   }
 
   .relationship-title-block h2 {
-    font-size: 46px;
+    font-size: 58px;
   }
 
   .relationship-story-list,
@@ -2163,7 +2633,7 @@ select:focus-visible {
   }
 
   .relationship-title-block h2 {
-    font-size: 38px;
+    font-size: 50px;
   }
 
   .relationship-big-counter strong {

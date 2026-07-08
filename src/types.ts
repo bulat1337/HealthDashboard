@@ -168,7 +168,15 @@ export type HealthDataResponse = {
   data: DashboardData;
 };
 
-export type SportActivityKey = "run" | "pilates" | "strength";
+export type SportActivityKey =
+  | "run"
+  | "pilates"
+  | "strength_lower"
+  | "strength_upper"
+  | "strength_whole"
+  | "cycling"
+  | "pull_ups"
+  | "push_ups";
 
 export type SportActivityCatalogEntry = {
   key: SportActivityKey;
@@ -176,9 +184,16 @@ export type SportActivityCatalogEntry = {
   color: string;
 };
 
+export type SportMaxReps = {
+  pullUps: number | null;
+  pushUps: number | null;
+};
+
 export type SportEntry = {
   date: string;
   activities: SportActivityKey[];
+  runDistanceKm: number | null;
+  maxReps: SportMaxReps;
 };
 
 export type SportUser = {

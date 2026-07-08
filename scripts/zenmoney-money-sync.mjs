@@ -618,6 +618,16 @@ function readMoneyContext(text) {
   };
 }
 
+function previousReserveAmountForTargetDate(moneyContext, targetDate) {
+  const existingRecord = moneyContext.records.find((record) => record.dateIso === targetDate.iso);
+  if (!existingRecord) return moneyContext.previousReserveAmount;
+
+  const previousRecord = [...moneyContext.records]
+    .reverse()
+    .find((record) => record.dateIso < targetDate.iso && record.reserveAmount !== null);
+  return previousRecord?.reserveAmount ?? 0;
+}
+
 function dateParts(date, timezone) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: timezone,
@@ -825,7 +835,8 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
   }
 
   const topUp = targetDate.day === 25 ? 100000 : 0;
-  const reserveAmount = moneyContext.previousReserveAmount + topUp;
+  const previousReserveAmount = previousReserveAmountForTargetDate(moneyContext, targetDate);
+  const reserveAmount = previousReserveAmount + topUp;
   const unpaidRent = targetDate.day >= 10 && targetDate.day <= 19 ? moneyContext.rentMonthly : 0;
   const rentPaid = targetDate.day >= 10 && targetDate.day <= 19 ? "нет" : "да";
   const creditCardDebt = zenmoneyCreditCardDebt + moneyContext.partnerCreditCardDebt;

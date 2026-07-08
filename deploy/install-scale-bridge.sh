@@ -48,6 +48,14 @@ XIAOMI_SCALE_DEFAULT_USER=
 XIAOMI_SCALE_MIN_REPEAT_SECONDS=21600
 XIAOMI_SCALE_SETTLE_SECONDS=6
 XIAOMI_SCALE_PENDING_TTL_SECONDS=90
+XIAOMI_SCALE_SCANNER_RESTART_SECONDS=900
+XIAOMI_SCALE_SCANNER_RESTART_DELAY_SECONDS=2
+XIAOMI_SCALE_SCANNER_FAILURE_DELAY_SECONDS=15
+XIAOMI_SCALE_SCANNER_FAILURE_EXIT_THRESHOLD=4
+XIAOMI_SCALE_SCANNER_RECOVERY_COMMAND="bluetoothctl scan off"
+XIAOMI_SCALE_SCANNER_RECOVERY_TIMEOUT_SECONDS=10
+XIAOMI_SCALE_SCANNER_STOP_TIMEOUT_SECONDS=10
+XIAOMI_SCALE_POST_TIMEOUT_SECONDS=10
 EOF
 fi
 
@@ -56,6 +64,7 @@ cat > "$SERVICE_DIR/xiaomi-scale-bridge.service" <<EOF
 Description=Xiaomi S400 BLE bridge for Health Dashboard
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -63,7 +72,7 @@ WorkingDirectory=$APP_DIR
 EnvironmentFile=$ENV_FILE
 ExecStart=$VENV_DIR/bin/python $APP_DIR/scripts/xiaomi-s400-ble-bridge.py
 Restart=always
-RestartSec=5
+RestartSec=15
 
 [Install]
 WantedBy=default.target
