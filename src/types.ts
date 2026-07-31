@@ -172,6 +172,7 @@ export type SportActivityKey =
   | "run"
   | "walking"
   | "pilates"
+  | "yoga"
   | "strength_lower"
   | "strength_upper"
   | "strength_whole"

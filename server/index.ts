@@ -299,6 +299,7 @@ type SportActivityKey =
   | "run"
   | "walking"
   | "pilates"
+  | "yoga"
   | "strength_lower"
   | "strength_upper"
   | "strength_whole"
@@ -353,6 +354,7 @@ const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "run", label: "Бег", color: "#2563eb" },
   { key: "walking", label: "Пешая прогулка", color: "#65a30d" },
   { key: "pilates", label: "Пилатес", color: "#db2777" },
+  { key: "yoga", label: "Йога", color: "#9333ea" },
   { key: "strength_lower", label: "Силовая · lower body", color: "#f97316" },
   { key: "strength_upper", label: "Силовая · upper body", color: "#ea580c" },
   { key: "strength_whole", label: "Силовая · whole body", color: "#f59e0b" },
@@ -373,6 +375,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "run",
       "walking",
       "pilates",
+      "yoga",
       "cycling",
       "sup",
       "pull_ups",
@@ -389,6 +392,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "run",
       "walking",
       "pilates",
+      "yoga",
       "cycling",
       "sup",
       "pull_ups",
