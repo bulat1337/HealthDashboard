@@ -176,6 +176,7 @@ export type SportActivityKey =
   | "strength_upper"
   | "strength_whole"
   | "cycling"
+  | "sup"
   | "pull_ups"
   | "push_ups";
 

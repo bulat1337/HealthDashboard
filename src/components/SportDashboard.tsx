@@ -17,7 +17,8 @@ import {
   MoveDown,
   RefreshCw,
   Trophy,
-  Users
+  Users,
+  Waves
 } from "lucide-react";
 import { fetchSportData, updateSportDay } from "../api";
 import type {
@@ -111,6 +112,7 @@ const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   strength_upper: Dumbbell,
   strength_whole: Dumbbell,
   cycling: Bike,
+  sup: Waves,
   pull_ups: ChevronsUp,
   push_ups: MoveDown
 };
@@ -130,6 +132,7 @@ const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   strength_upper: "Upper body",
   strength_whole: "Whole body",
   cycling: "Велотренировка",
+  sup: "Сап",
   pull_ups: "Подтягивания",
   push_ups: "Отжимания"
 };

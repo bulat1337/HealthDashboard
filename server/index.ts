@@ -303,6 +303,7 @@ type SportActivityKey =
   | "strength_upper"
   | "strength_whole"
   | "cycling"
+  | "sup"
   | "pull_ups"
   | "push_ups";
 
@@ -356,6 +357,7 @@ const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "strength_upper", label: "Силовая · upper body", color: "#ea580c" },
   { key: "strength_whole", label: "Силовая · whole body", color: "#f59e0b" },
   { key: "cycling", label: "Велотренировка", color: "#0f766e" },
+  { key: "sup", label: "Сап", color: "#0891b2" },
   { key: "pull_ups", label: "Подтягивания", color: "#16a34a" },
   { key: "push_ups", label: "Отжимания", color: "#7c3aed" }
 ];
@@ -372,6 +374,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "walking",
       "pilates",
       "cycling",
+      "sup",
       "pull_ups",
       "push_ups"
     ]
@@ -387,6 +390,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "walking",
       "pilates",
       "cycling",
+      "sup",
       "pull_ups",
       "push_ups"
     ]
