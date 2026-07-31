@@ -170,6 +170,7 @@ export type HealthDataResponse = {
 
 export type SportActivityKey =
   | "run"
+  | "walking"
   | "pilates"
   | "strength_lower"
   | "strength_upper"

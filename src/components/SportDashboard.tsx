@@ -105,6 +105,7 @@ const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   run: Footprints,
+  walking: Footprints,
   pilates: Activity,
   strength_lower: Dumbbell,
   strength_upper: Dumbbell,
@@ -123,6 +124,7 @@ const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KE
 const DEFAULT_STRENGTH_ACTIVITY_KEY: SportActivityKey = "strength_whole";
 const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   run: "Бег",
+  walking: "Пешая прогулка",
   pilates: "Пилатес",
   strength_lower: "Lower body",
   strength_upper: "Upper body",

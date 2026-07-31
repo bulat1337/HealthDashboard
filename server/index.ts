@@ -297,6 +297,7 @@ type MoneyData = {
 
 type SportActivityKey =
   | "run"
+  | "walking"
   | "pilates"
   | "strength_lower"
   | "strength_upper"
@@ -349,6 +350,7 @@ type SportDayUpdate = {
 
 const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "run", label: "Бег", color: "#2563eb" },
+  { key: "walking", label: "Пешая прогулка", color: "#65a30d" },
   { key: "pilates", label: "Пилатес", color: "#db2777" },
   { key: "strength_lower", label: "Силовая · lower body", color: "#f97316" },
   { key: "strength_upper", label: "Силовая · upper body", color: "#ea580c" },
@@ -367,6 +369,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "strength_upper",
       "strength_whole",
       "run",
+      "walking",
       "pilates",
       "cycling",
       "pull_ups",
@@ -381,6 +384,7 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "strength_upper",
       "strength_whole",
       "run",
+      "walking",
       "pilates",
       "cycling",
       "pull_ups",
