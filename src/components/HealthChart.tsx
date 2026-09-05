@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChartPoint } from "../stats";
 import { formatDateTime, formatNumber } from "../stats";
 import type { MetricCatalogEntry, MetricStats } from "../types";
@@ -51,6 +51,8 @@ function ticks(min: number, max: number, count: number) {
 export function HealthChart({ points, metric, stats }: HealthChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
+
+  useEffect(() => setHover(null), [points, metric.key]);
 
   const chart = useMemo(() => {
     if (points.length === 0) return null;

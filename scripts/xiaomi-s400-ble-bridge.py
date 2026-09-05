@@ -6,6 +6,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import math
+import struct
+from pathlib import Path
 import os
 import subprocess
 import time
@@ -17,18 +20,41 @@ from typing import Any
 
 from bleak import BleakScanner
 from home_assistant_bluetooth import BluetoothServiceInfo
-from xiaomi_ble.parser import XiaomiBluetoothDeviceData
+from xiaomi_ble.parser import XiaomiBluetoothDeviceData, xiaomi_dataobject_dict
 
 
 SERVICE_MIBEACON = "0000fe95-0000-1000-8000-00805f9b34fb"
 
-FIELD_MAP = {
-    "mass": "weight",
-    "impedance": "impedance",
-    "impedance_low": "impedanceLow",
-    "heart_rate": "heartRate",
-    "profile_id": "profile_id",
-}
+# Keep the upstream authenticated MiBeacon decoder, but consume fresh S400 objects.
+# SensorUpdate.entity_values is cumulative and can combine two different weigh-ins.
+_original_s400_handler = xiaomi_dataobject_dict[0x6E16]
+
+
+def decode_s400_object(raw: bytes) -> dict[str, Any]:
+    if len(raw) != 9:
+        return {}
+    profile, data, timestamp = struct.unpack("<BII", raw)
+    if not data:
+        return {}
+    mass, heart, impedance = data & 0x7FF, (data >> 11) & 0x7F, data >> 18
+    fragment: dict[str, Any] = {"profile_id": profile, "device_timestamp_raw": timestamp}
+    if mass:
+        fragment["weight"] = mass / 10
+    if impedance:
+        fragment["impedance" if mass else "impedanceLow"] = impedance / 10
+    if 0 < heart < 127:
+        fragment["heartRate"] = heart + 50
+    return fragment
+
+
+def capture_s400_object(raw: bytes, device: Any, device_type: str) -> dict[str, Any]:
+    fragment = decode_s400_object(raw)
+    if fragment and hasattr(device, "scale_fragments"):
+        device.scale_fragments.append(fragment)
+    return _original_s400_handler(raw, device, device_type) if len(raw) == 9 else {}
+
+
+xiaomi_dataobject_dict[0x6E16] = capture_s400_object
 
 
 @dataclass
@@ -38,7 +64,6 @@ class BridgeConfig:
     ingest_token: str
     address: str | None = None
     default_user: str | None = None
-    min_repeat_seconds: float = 21600.0
     settle_seconds: float = 6.0
     pending_ttl_seconds: float = 90.0
     scanner_restart_seconds: float = 900.0
@@ -49,6 +74,8 @@ class BridgeConfig:
     scanner_recovery_timeout_seconds: float = 10.0
     scanner_stop_timeout_seconds: float = 10.0
     post_timeout_seconds: float = 10.0
+    state_file: str = ""
+    retry_seconds: float = 15.0
     user_map: dict[str, str] = field(default_factory=dict)
 
 
@@ -95,7 +122,6 @@ def load_config() -> BridgeConfig:
         ingest_token=env_required("HEALTH_INGEST_TOKEN"),
         address=os.environ.get("XIAOMI_SCALE_ADDRESS", "").strip().upper() or None,
         default_user=os.environ.get("XIAOMI_SCALE_DEFAULT_USER", "").strip() or None,
-        min_repeat_seconds=float(os.environ.get("XIAOMI_SCALE_MIN_REPEAT_SECONDS", "21600")),
         settle_seconds=float(os.environ.get("XIAOMI_SCALE_SETTLE_SECONDS", "6")),
         pending_ttl_seconds=float(os.environ.get("XIAOMI_SCALE_PENDING_TTL_SECONDS", "90")),
         scanner_restart_seconds=float(os.environ.get("XIAOMI_SCALE_SCANNER_RESTART_SECONDS", "900")),
@@ -118,6 +144,7 @@ def load_config() -> BridgeConfig:
             os.environ.get("XIAOMI_SCALE_SCANNER_STOP_TIMEOUT_SECONDS", "10")
         ),
         post_timeout_seconds=float(os.environ.get("XIAOMI_SCALE_POST_TIMEOUT_SECONDS", "10")),
+        state_file=os.environ.get("XIAOMI_SCALE_STATE_FILE", str(Path.home() / ".local/state/health-dashboard/scale-bridge.json")),
         user_map={str(key): str(value) for key, value in user_map.items()},
     )
 
@@ -134,48 +161,25 @@ def build_service_info(device: Any, advertisement_data: Any) -> BluetoothService
     )
 
 
-def sensor_update_payload(sensor_update: Any, config: BridgeConfig) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "model": "MJTZC01YM",
-    }
-
-    for sensor_value in sensor_update.entity_values.values():
-        key = str(sensor_value.device_key.key)
-        target = FIELD_MAP.get(key)
-        if target:
-            payload[target] = sensor_value.native_value
-
-    profile_id = payload.get("profile_id")
-    if profile_id is not None:
-        user = config.user_map.get(str(profile_id))
-        if user:
-            payload["user"] = user
-    elif config.default_user:
-        payload["user"] = config.default_user
-
-    return payload
-
-
-def post_payload(config: BridgeConfig, payload: dict[str, Any]) -> None:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+def post_payload(config: BridgeConfig, payload: dict[str, Any]) -> bool:
     request = urllib.request.Request(
         config.ingest_url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {config.ingest_token}",
-            "Content-Type": "application/json; charset=utf-8",
-        },
+        data=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8"),
+        headers={"Authorization": f"Bearer {config.ingest_token}", "Content-Type": "application/json"},
         method="POST",
     )
-
     try:
         with urllib.request.urlopen(request, timeout=config.post_timeout_seconds) as response:
-            print(response.read().decode("utf-8"), flush=True)
+            result = json.loads(response.read())
+            if not isinstance(result, dict) or not isinstance(result.get("duplicate"), bool):
+                raise ValueError("Missing ingest acknowledgement")
+            print(f"Measurement acknowledged (duplicate={result['duplicate']}).", flush=True)
+            return True
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        print(f"POST failed: HTTP {exc.code} {detail}", flush=True)
-    except urllib.error.URLError as exc:
-        print(f"POST failed: {exc.reason}", flush=True)
+        print(f"POST failed: HTTP {exc.code}; measurement retained for retry.", flush=True)
+    except (OSError, ValueError) as exc:
+        print(f"POST failed: {type(exc).__name__}; measurement retained for retry.", flush=True)
+    return False
 
 
 async def stop_scanner(scanner: BleakScanner, config: BridgeConfig) -> None:
@@ -211,16 +215,73 @@ def run_scanner_recovery(config: BridgeConfig) -> None:
 class XiaomiS400Bridge:
     def __init__(self, config: BridgeConfig) -> None:
         self.config = config
-        self.parser = XiaomiBluetoothDeviceData(bindkey=config.bindkey)
-        self.last_sent: dict[str, float] = {}
+        self.parsers: dict[str, Any] = {}
+        self.last_sent: dict[str, str] = {}
+        self.outbox: dict[str, dict[str, Any]] = {}
         self.pending: dict[str, PendingMeasurement] = {}
+        self.scanning = False
+        self.last_advertisement_at: float | None = None
+        self.last_scale_at: float | None = None
+        self.last_success_at: float | None = None
+        self.last_error: str | None = None
+        if config.state_file and Path(config.state_file).exists():
+            state = json.loads(Path(config.state_file).read_text())
+            self.last_sent = state.get("last_sent", {})
+            self.outbox = state.get("outbox", {})
+            self.last_success_at = state.get("last_success_at")
+
+    def persist(self) -> None:
+        if not self.config.state_file:
+            return
+        target = Path(self.config.state_file)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_suffix(".tmp")
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            json.dump({"last_sent": self.last_sent, "outbox": self.outbox,
+                       "heartbeat_at": time.time(), "scanning": self.scanning,
+                       "last_advertisement_at": self.last_advertisement_at,
+                       "last_scale_at": self.last_scale_at,
+                       "last_success_at": self.last_success_at,
+                       "last_error": self.last_error}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, target)
+
+    def person_key(self, payload: dict[str, Any]) -> str:
+        return f"{payload.get('device_id', '')}:{payload.get('profile_id', payload.get('user', 'unknown'))}"
+
+    def fingerprint(self, payload: dict[str, Any]) -> str | None:
+        values = [payload.get(k) for k in ("weight", "impedance", "impedanceLow")]
+        try:
+            if not all(math.isfinite(float(v)) and float(v) > 0 for v in values):
+                return None
+        except (TypeError, ValueError):
+            return None
+        # Device timestamp separates genuinely new identical results when available.
+        return json.dumps([payload.get("device_timestamp_raw", 0), *[round(float(v), 1) for v in values]])
+
+    async def deliver_outbox(self) -> None:
+        while True:
+            for key, payload in list(self.outbox.items()):
+                if await asyncio.to_thread(post_payload, self.config, payload):
+                    self.last_sent[self.person_key(payload)] = self.fingerprint(payload) or ""
+                    self.outbox.pop(key, None)
+                    self.last_success_at = time.time()
+                    self.last_error = None
+                    self.persist()
+                else:
+                    self.last_error = "ingest_delivery_failed"
+                    continue
+            self.persist()
+            await asyncio.sleep(self.config.retry_seconds)
 
     def update_pending(self, address: str, payload: dict[str, Any]) -> PendingMeasurement:
         now = time.monotonic()
         self.expire_pending(now)
         pending = self.pending.setdefault(address, PendingMeasurement())
         pending.payload.update(payload)
-        pending.payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        pending.payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         pending.updated_at_monotonic = now
 
         profile_id = pending.payload.get("profile_id")
@@ -254,30 +315,8 @@ class XiaomiS400Bridge:
         )
 
     def should_send(self, payload: dict[str, Any]) -> bool:
-        weight = payload.get("weight")
-        impedance = payload.get("impedance")
-        low_impedance = payload.get("impedanceLow")
-        profile_id = payload.get("profile_id")
-        user = payload.get("user")
-        if weight is None or impedance is None or low_impedance is None:
-            return False
-
-        try:
-            rounded_weight = round(float(weight), 1)
-            rounded_impedance = round(float(impedance), 1)
-            rounded_low_impedance = round(float(low_impedance), 1)
-        except (TypeError, ValueError):
-            return False
-
-        person_key = str(profile_id if profile_id is not None else user or "unknown")
-        key = f"{person_key}:{rounded_weight}:{rounded_impedance}:{rounded_low_impedance}"
-        now = time.monotonic()
-        last = self.last_sent.get(key, 0)
-        if now - last < self.config.min_repeat_seconds:
-            return False
-
-        self.last_sent[key] = now
-        return True
+        fingerprint = self.fingerprint(payload)
+        return fingerprint is not None and self.last_sent.get(self.person_key(payload)) != fingerprint
 
     async def send_after_settle(self, address: str) -> None:
         try:
@@ -287,8 +326,11 @@ class XiaomiS400Bridge:
                 return
             payload = dict(pending.payload)
             if self.should_send(payload):
-                print(json.dumps(payload, ensure_ascii=False), flush=True)
-                await asyncio.to_thread(post_payload, self.config, payload)
+                key = self.person_key(payload) + ":" + str(self.fingerprint(payload))
+                # A retry retains the timestamp of the first observation.
+                if key not in self.outbox:
+                    self.outbox[key] = payload
+                    self.persist()
             self.pending.pop(address, None)
         except asyncio.CancelledError:
             raise
@@ -296,29 +338,37 @@ class XiaomiS400Bridge:
             print(f"Failed to send pending measurement from {address}: {exc}", flush=True)
 
     def on_advertisement(self, device: Any, advertisement_data: Any) -> None:
-        if self.config.address and device.address.upper() != self.config.address:
+        self.last_advertisement_at = time.time()
+        address = device.address.upper()
+        if self.config.address and address != self.config.address:
             return
         if SERVICE_MIBEACON not in advertisement_data.service_data:
             return
-
-        service_info = build_service_info(device, advertisement_data)
+        parser = self.parsers.get(address)
+        if parser is None:
+            parser = XiaomiBluetoothDeviceData(bindkey=self.config.bindkey)
+            self.parsers[address] = parser
+        parser.scale_fragments = []
         try:
-            if not self.parser.supported(service_info):
+            info = build_service_info(device, advertisement_data)
+            if not parser.supported(info):
                 return
-
-            sensor_update = self.parser.update(service_info)
+            parser.update(info)
         except Exception as exc:
-            print(f"Failed to parse BLE advertisement from {device.address}: {exc}", flush=True)
+            print(f"Failed to parse BLE advertisement: {type(exc).__name__}", flush=True)
             return
-        if not sensor_update:
-            return
-
-        payload = sensor_update_payload(sensor_update, self.config)
-        pending = self.update_pending(device.address, payload)
-        if self.has_complete_body_payload(pending.payload) and (
-            pending.send_task is None or pending.send_task.done()
-        ):
-            pending.send_task = asyncio.create_task(self.send_after_settle(device.address))
+        for fragment in parser.scale_fragments:
+            self.last_scale_at = time.time()
+            payload = {"model": "MJTZC01YM", "device_id": address, "source_app": "Xiaomi S400 BLE bridge", **fragment}
+            # Pair only fragments for the same device, profile and device timestamp.
+            key = f"{address}:{fragment['profile_id']}:{fragment['device_timestamp_raw']}"
+            if fragment["device_timestamp_raw"]:
+                payload["source_measurement_id"] = key
+            pending = self.update_pending(key, payload)
+            if self.has_complete_body_payload(pending.payload) and (
+                pending.send_task is None or pending.send_task.done()
+            ):
+                pending.send_task = asyncio.create_task(self.send_after_settle(key))
 
 
 async def run_scanner_once(bridge: XiaomiS400Bridge) -> None:
@@ -326,10 +376,13 @@ async def run_scanner_once(bridge: XiaomiS400Bridge) -> None:
     started_at = time.monotonic()
     started = False
 
-    print("Listening for Xiaomi S400 BLE advertisements...", flush=True)
     try:
-        await scanner.start()
+        await asyncio.wait_for(scanner.start(), timeout=30)
         started = True
+        bridge.scanning = True
+        bridge.last_error = None
+        bridge.persist()
+        print("Listening for Xiaomi S400 BLE advertisements...", flush=True)
     except Exception:
         await stop_scanner(scanner, bridge.config)
         await asyncio.to_thread(run_scanner_recovery, bridge.config)
@@ -340,6 +393,9 @@ async def run_scanner_once(bridge: XiaomiS400Bridge) -> None:
             restart_seconds = bridge.config.scanner_restart_seconds
             await asyncio.sleep(60.0 if restart_seconds <= 0 else min(60.0, restart_seconds))
             bridge.expire_pending()
+            last_radio = bridge.last_advertisement_at
+            if last_radio is not None and time.time() - last_radio > 180:
+                raise RuntimeError("BLE scanner failed: no advertisements for 180 seconds")
             elapsed = time.monotonic() - started_at
             if restart_seconds > 0 and elapsed >= restart_seconds:
                 print(
@@ -349,6 +405,8 @@ async def run_scanner_once(bridge: XiaomiS400Bridge) -> None:
                 )
                 return
     finally:
+        bridge.scanning = False
+        bridge.persist()
         if started:
             await stop_scanner(scanner, bridge.config)
 
@@ -357,13 +415,19 @@ async def main() -> None:
     config = load_config()
     bridge = XiaomiS400Bridge(config)
     consecutive_failures = 0
+    delivery_task = asyncio.create_task(bridge.deliver_outbox())
 
     while True:
         try:
+            if delivery_task.done():
+                delivery_task.result()
             await run_scanner_once(bridge)
             consecutive_failures = 0
         except Exception as exc:
             consecutive_failures += 1
+            bridge.scanning = False
+            bridge.last_error = "scanner_failed"
+            bridge.persist()
             print(f"BLE scanner failed: {exc}", flush=True)
 
             if (

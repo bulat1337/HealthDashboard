@@ -6,7 +6,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 
-TARGET_USER="${SUDO_USER:-bulat}"
+TARGET_USER="${TARGET_USER:-${SUDO_USER:-bulat}}"
 TARGET_UID="$(id -u "$TARGET_USER")"
 export XDG_RUNTIME_DIR="/run/user/$TARGET_UID"
 
@@ -25,6 +25,11 @@ if [ -e /sys/class/bluetooth/hci0/device ]; then
   HCI_DEVICE_PATH="$(readlink -f /sys/class/bluetooth/hci0/device)"
   USB_INTERFACE="$(basename "$HCI_DEVICE_PATH")"
   USB_DEVICE="${USB_INTERFACE%%:*}"
+fi
+
+# Prevent a suspended USB controller from remaining invisible to the scanner.
+if [ -n "$USB_DEVICE" ] && [ -w "/sys/bus/usb/devices/$USB_DEVICE/power/control" ]; then
+  echo on > "/sys/bus/usb/devices/$USB_DEVICE/power/control"
 fi
 
 if command -v hciconfig >/dev/null 2>&1; then

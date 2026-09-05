@@ -8,6 +8,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { WebSocketServer } from "ws";
+import os from "node:os";
+import { atomicWrite } from "./atomic-write.js";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 
 const execFileAsync = promisify(execFile);
@@ -552,7 +554,8 @@ function parseMoneyDate(date: string | undefined): string | null {
   const rawYear = Number(match[3]);
   const year = rawYear < 100 ? 2000 + rawYear : rawYear;
   if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
-  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
@@ -791,7 +794,7 @@ function loadMoneyData(): MoneyData {
 
     return {
       status: "ready",
-      sourceFile: MONEY_FILE,
+      sourceFile: publicPath(MONEY_FILE),
       sourceMtimeMs: stat.mtimeMs,
       lastLoadError: null,
       sync: publicMoneySyncState(),
@@ -1140,7 +1143,7 @@ function writeSportDay(update: SportDayUpdate) {
   };
 
   fs.mkdirSync(path.dirname(SPORT_FILE), { recursive: true });
-  fs.writeFileSync(SPORT_FILE, `${JSON.stringify(nextRaw, null, 2)}\n`, "utf8");
+  atomicWrite(SPORT_FILE, `${JSON.stringify(nextRaw, null, 2)}\n`);
 }
 
 function measuredAtIso(measurement: RawMeasurement): string {
@@ -1495,6 +1498,7 @@ function refreshCache() {
 
 function getCachedData() {
   if (!cachedData) refreshCache();
+  if (cachedData) cachedData.money.sync = publicMoneySyncState();
   return cachedData;
 }
 
@@ -2099,6 +2103,19 @@ const server = http.createServer(app);
 const sockets = new WebSocketServer({ noServer: true });
 
 app.use(express.json({ limit: "64kb" }));
+app.use("/api", (request, response, next) => {
+  response.setHeader("Cache-Control", "no-store");
+  const origin = request.headers.origin;
+  if (origin && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    try {
+      if (new URL(origin).host !== request.headers.host) {
+        response.status(403).json({ error: "Cross-origin writes are not allowed" });
+        return;
+      }
+    } catch { response.status(403).json({ error: "Invalid origin" }); return; }
+  }
+  next();
+});
 app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
 
 app.get("/api/health-data", (_request, response) => {
@@ -2225,7 +2242,7 @@ app.patch("/api/money-data/partner", (request, response) => {
     const result = updateMoneyPartnerValuesText(currentText, update);
 
     if (result.text !== currentText) {
-      fs.writeFileSync(MONEY_FILE, result.text, "utf8");
+      atomicWrite(MONEY_FILE, result.text);
     }
 
     const data = refreshCache();
@@ -2262,7 +2279,7 @@ app.patch("/api/money-data/records/:rowId", (request, response) => {
     const nextText = updateMoneyRecordText(currentText, rowId, update);
 
     if (nextText !== currentText) {
-      fs.writeFileSync(MONEY_FILE, nextText, "utf8");
+      atomicWrite(MONEY_FILE, nextText);
     }
 
     const data = refreshCache();
@@ -2293,6 +2310,21 @@ app.patch("/api/money-data/records/:rowId", (request, response) => {
   }
 });
 
+function scaleBridgeStatus() {
+  const stateFile = process.env.XIAOMI_SCALE_STATE_FILE || path.join(os.homedir(), ".local/state/health-dashboard/scale-bridge.json");
+  try {
+    const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const heartbeatAgeSeconds = (Date.now() / 1000) - Number(state.heartbeat_at || 0);
+    return { status: heartbeatAgeSeconds < 120 && state.scanning === true ? "scanning" : "unhealthy",
+      heartbeatAgeSeconds: Math.round(heartbeatAgeSeconds),
+      lastAdvertisementAt: state.last_advertisement_at ?? null,
+      lastScalePacketAt: state.last_scale_at ?? null,
+      lastDeliveryAt: state.last_success_at ?? null,
+      pendingDeliveries: Object.keys(state.outbox ?? {}).length,
+      lastError: state.last_error ?? null };
+  } catch { return { status: "unavailable" }; }
+}
+
 app.get("/api/status", (_request, response) => {
   const exists = fs.existsSync(DATA_FILE);
   const stat = exists ? fs.statSync(DATA_FILE) : null;
@@ -2307,6 +2339,7 @@ app.get("/api/status", (_request, response) => {
     dataDir: publicPath(DATA_DIR),
     dataFile: publicPath(DATA_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
+    scale: scaleBridgeStatus(),
     money: {
       status: money.status,
       sourceFile: publicPath(MONEY_FILE),
@@ -2364,8 +2397,8 @@ function tokenMatches(actual: string | null) {
   );
 }
 
-let refreshTimer: NodeJS.Timeout | null = null;
-const watcher = chokidar.watch([DATA_FILE, path.join(DATA_DIR, "*.csv"), path.join(DATA_DIR, "*.md"), MONEY_FILE], {
+const refreshTimers = new Map<string, NodeJS.Timeout>();
+const watcher = chokidar.watch([DATA_FILE, MONEY_FILE, SPORT_FILE], {
   ignoreInitial: true,
   awaitWriteFinish: {
     stabilityThreshold: 350,
@@ -2374,9 +2407,16 @@ const watcher = chokidar.watch([DATA_FILE, path.join(DATA_DIR, "*.csv"), path.jo
 });
 
 watcher.on("all", (event, changedPath) => {
-  if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => {
+  const previousTimer = refreshTimers.get(changedPath);
+  if (previousTimer) clearTimeout(previousTimer);
+  refreshTimers.set(changedPath, setTimeout(() => {
+    refreshTimers.delete(changedPath);
     try {
+      if (changedPath === SPORT_FILE) {
+        loadSportData();
+        broadcast({ type: "sport-data-updated", updatedAt: new Date().toISOString() });
+        return;
+      }
       refreshCache();
       broadcast({
         type: "health-data-updated",
@@ -2393,11 +2433,12 @@ watcher.on("all", (event, changedPath) => {
         updatedAt: new Date().toISOString()
       });
     }
-  }, 120);
+  }, 120));
 });
 
-refreshCache();
+try { refreshCache(); } catch (error) { console.error(`Initial health data load failed: ${errorText(error)}`); }
 scheduleNextMoneySync();
+app.use("/api", (_request, response) => { response.status(404).json({ error: "Unknown API endpoint" }); });
 
 async function configureFrontend() {
   if (isProduction) {

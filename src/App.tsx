@@ -12,7 +12,7 @@ import {
   Wallet,
   Waves
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchHealthData, openHealthSocket, refreshMoneyData } from "./api";
 import { HealthChart } from "./components/HealthChart";
 import { MoneyDashboard } from "./components/MoneyDashboard";
@@ -231,8 +231,13 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sportRefreshKey, setSportRefreshKey] = useState(0);
 
+  const loadSequence = useRef(0);
+
   async function load(signal?: AbortSignal) {
+    const sequence = ++loadSequence.current;
     const response = await fetchHealthData(signal);
+    if (signal?.aborted || sequence !== loadSequence.current) return;
+    setError(null);
     setData(response.data);
     setSelectedUser((current) =>
       response.data.users.some((user) => user.name === current)
@@ -288,6 +293,8 @@ function App() {
         const event = message as { type?: string; updatedAt?: string };
         if (event.type === "connected") {
           setSocketConnected(true);
+          setSportRefreshKey((current) => current + 1);
+          load().catch((loadError) => setError(String(loadError)));
         }
         if (event.type === "health-data-updated" || event.type === "money-data-updated") {
           setLastEventAt(event.updatedAt ?? new Date().toISOString());
@@ -311,8 +318,15 @@ function App() {
       socket.addEventListener("error", () => setSocketConnected(false));
     }
 
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      load().catch((loadError) => setError(String(loadError)));
+      setSportRefreshKey((current) => current + 1);
+    }
+    document.addEventListener("visibilitychange", onVisible);
     connect();
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       closed = true;
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.close();

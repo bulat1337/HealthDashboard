@@ -262,6 +262,7 @@ async function tokenRequest(params) {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
     },
+    signal: AbortSignal.timeout(30000),
     body: new URLSearchParams(params)
   });
 
@@ -389,7 +390,7 @@ async function getValidToken() {
   return token;
 }
 
-async function zenmoneyJson(endpoint, body, token = null) {
+async function zenmoneyJson(endpoint, body, token = null, retried = false) {
   const currentToken = token || (await getValidToken());
   const response = await fetch(new URL(endpoint, API_BASE), {
     method: "POST",
@@ -398,12 +399,13 @@ async function zenmoneyJson(endpoint, body, token = null) {
       "Content-Type": "application/json",
       "User-Agent": "HealthDashboardMoneySync/0.1"
     },
+    signal: AbortSignal.timeout(30000),
     body: JSON.stringify(body)
   });
 
-  if (response.status === 401 && currentToken.refresh_token) {
+  if (response.status === 401 && currentToken.refresh_token && !retried) {
     const refreshed = await refreshToken(currentToken);
-    return zenmoneyJson(endpoint, body, refreshed);
+    return zenmoneyJson(endpoint, body, refreshed, true);
   }
 
   const text = await response.text();
@@ -530,7 +532,8 @@ function parseMoneyDate(date) {
   const rawYear = Number(match[3]);
   const year = rawYear < 100 ? 2000 + rawYear : rawYear;
   if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
-  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return null;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
@@ -651,7 +654,7 @@ function dateParts(date, timezone) {
 function dateFromFlag(rawDate, timezone) {
   if (!rawDate) return dateParts(new Date(), timezone);
   const match = rawDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) throw new Error("--date must use YYYY-MM-DD format.");
+  if (!match || !parseMoneyDate(`${match[3]}.${match[2]}.${match[1]}`)) throw new Error("--date must be a valid YYYY-MM-DD date.");
   return {
     year: Number(match[1]),
     month: Number(match[2]),
@@ -684,14 +687,17 @@ function normalizeZenMoneyData(diff) {
   const accounts = (diff.account || []).map((account) => {
     const instrument = instruments.get(account.instrument);
     const company = companies.get(account.company);
-    const rate = asNumber(instrument?.rate) ?? 1;
-    const balance = asNumber(account.balance) ?? 0;
+    const rawRate = asNumber(instrument?.rate);
+    const rawBalance = asNumber(account.balance);
+    const rate = rawRate ?? (instrument?.shortTitle === "RUB" ? 1 : 0);
+    const balance = rawBalance ?? 0;
     const creditLimit = asNumber(account.creditLimit) ?? 0;
     const balanceRub = balance * rate;
     const creditLimitRub = creditLimit * rate;
 
     return {
       ...account,
+      validBalance: rawBalance !== null && rate > 0,
       instrumentTitle: instrument?.shortTitle || instrument?.title || String(account.instrument || ""),
       instrumentRate: rate,
       companyTitle: company?.title || company?.fullTitle || "",
@@ -738,6 +744,7 @@ function isDebitAccount(account, config) {
   if (isCreditCardAccount(account, config)) {
     return config.includePositiveCreditCardBalance === true && account.balanceRub > 0;
   }
+  // ZenMoney ccard includes debit cards; credit cards are classified above by limit/debt.
   if (account.type === "ccard") return true;
   return new Set(config.debitAccountTypes || []).has(account.type);
 }
@@ -762,7 +769,7 @@ function classifyAccounts(data, config) {
     }
 
     if (isInvestmentAccount(account, config)) {
-      investmentAccounts.push(account);
+      if (debitListAllows) investmentAccounts.push(account);
       continue;
     }
 
@@ -811,6 +818,11 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
     throw new Error(`Money.md is missing readable values: ${missing.join(", ")}.`);
   }
 
+  if ([...accountSummary.debitAccounts, ...accountSummary.investmentAccounts, ...accountSummary.creditCardAccounts]
+    .some((account) => account.validBalance === false)) {
+    throw new Error("Selected ZenMoney accounts have missing balances or exchange rates; money update cancelled.");
+  }
+
   const debitTotal = Math.round(
     accountSummary.debitAccounts.reduce((total, account) => total + account.balanceRub, 0)
   );
@@ -837,8 +849,8 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
   const topUp = targetDate.day === 25 ? 100000 : 0;
   const previousReserveAmount = previousReserveAmountForTargetDate(moneyContext, targetDate);
   const reserveAmount = previousReserveAmount + topUp;
-  const unpaidRent = targetDate.day >= 10 && targetDate.day <= 19 ? moneyContext.rentMonthly : 0;
-  const rentPaid = targetDate.day >= 10 && targetDate.day <= 19 ? "нет" : "да";
+  const unpaidRent = targetDate.day >= 10 && targetDate.day <= 18 ? moneyContext.rentMonthly : 0;
+  const rentPaid = targetDate.day >= 10 && targetDate.day <= 18 ? "нет" : "да";
   const creditCardDebt = zenmoneyCreditCardDebt + moneyContext.partnerCreditCardDebt;
   const freeAmount = debitTotal - creditCardDebt - moneyContext.partnerMoney - unpaidRent - reserveAmount;
 
@@ -942,13 +954,13 @@ function updateMoneyText(text, row) {
 }
 
 async function buildZenMoneyRow(config, flags) {
-  const moneyText = await fs.readFile(config.moneyFile, "utf8");
-  const moneyContext = readMoneyContext(moneyText);
   const targetDate = dateFromFlag(flags.get("date"), config.timezone);
   await runZenMoneyPreSync();
   const diff = await fetchFullDiff();
   const data = normalizeZenMoneyData(diff);
   const accountSummary = classifyAccounts(data, config);
+  const moneyText = await fs.readFile(config.moneyFile, "utf8");
+  const moneyContext = readMoneyContext(moneyText);
   const row = buildMoneyRow({ moneyContext, accountSummary, targetDate, config });
 
   return {
@@ -1149,7 +1161,17 @@ async function main() {
     }
 
     const nextText = updateMoneyText(result.moneyText, result.row);
-    await fs.writeFile(config.moneyFile, nextText, "utf8");
+    // No await between comparison and atomic rename: web edits cannot be overwritten.
+    const tmpFile = `${config.moneyFile}.${process.pid}.tmp`;
+    try {
+      const fd = fsSync.openSync(tmpFile, "w", fsSync.statSync(config.moneyFile).mode & 0o777);
+      try { fsSync.writeFileSync(fd, nextText); fsSync.fsyncSync(fd); }
+      finally { fsSync.closeSync(fd); }
+      if (fsSync.readFileSync(config.moneyFile, "utf8") !== result.moneyText) {
+        throw new Error("Money.md changed during sync; retry to preserve the newer edits.");
+      }
+      fsSync.renameSync(tmpFile, config.moneyFile);
+    } finally { if (fsSync.existsSync(tmpFile)) fsSync.unlinkSync(tmpFile); }
     writeStdout(flags.has("json") ? JSON.stringify(payload, null, 2) : `Money.md updated: ${config.moneyFile}`);
     await writeStatus({
       status: "ok",
@@ -1166,7 +1188,9 @@ async function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-main().catch(async (error) => {
+export { zenmoneyJson, buildMoneyRow, classifyAccounts, readMoneyContext, dateFromFlag, updateMoneyText, normalizeZenMoneyData };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) main().catch(async (error) => {
   const message = error instanceof Error ? error.message : String(error);
   await writeStatus({
     status: "error",

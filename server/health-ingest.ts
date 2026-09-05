@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWrite } from "./atomic-write.js";
 
 type RawMeasurement = {
   row_id?: number;
@@ -51,8 +52,8 @@ export type IngestResult = {
   dataFile: string;
 };
 
-const DEFAULT_TIMEZONE = process.env.HEALTH_DEFAULT_TIMEZONE || "UTC";
-const DEFAULT_INGEST_USER = process.env.HEALTH_INGEST_DEFAULT_USER?.trim() || "";
+const defaultTimezone = () => process.env.HEALTH_DEFAULT_TIMEZONE || "UTC";
+const defaultIngestUser = () => process.env.HEALTH_INGEST_DEFAULT_USER?.trim() || "";
 const DUPLICATE_WINDOW_SECONDS = 15 * 60;
 const ESTIMATE_SOURCE_MIN_METRICS = 12;
 
@@ -97,6 +98,8 @@ const WIDE_META_COLUMNS = [
 ];
 
 const KNOWN_RAW_FIELDS = [
+  "source_measurement_id",
+  "device_timestamp_raw",
   "timestamp",
   "measured_at",
   "measuredAt",
@@ -175,7 +178,7 @@ function stringValue(payload: Record<string, unknown>, keys: string[]): string |
   return null;
 }
 
-function formatDateTime(date: Date, timeZone = DEFAULT_TIMEZONE): string {
+function formatDateTime(date: Date, timeZone = defaultTimezone()): string {
   return new Intl.DateTimeFormat("sv-SE", {
     timeZone,
     year: "numeric",
@@ -190,16 +193,34 @@ function formatDateTime(date: Date, timeZone = DEFAULT_TIMEZONE): string {
 
 function parseTimestamp(payload: Record<string, unknown>, now: Date): Date {
   const unixSeconds = numberValue(payload, ["measured_at_unix_seconds", "unix_seconds", "time"]);
-  if (unixSeconds !== null && unixSeconds > 0) return new Date(unixSeconds * 1000);
+  if (unixSeconds !== null) {
+    const date = new Date(unixSeconds * 1000);
+    if (unixSeconds <= 0 || !Number.isFinite(date.getTime())) throw new IngestError(400, "Invalid Unix timestamp");
+    return date;
+  }
 
   const text = stringValue(payload, ["timestamp", "measured_at", "measuredAt", "date"]);
   if (!text) return now;
 
   const normalized = text.includes("T") ? text : text.replace(" ", "T");
-  const withTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)
-    ? normalized
-    : `${normalized}+03:00`;
-  const parsed = new Date(withTimezone);
+  let parsed: Date;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)) {
+    parsed = new Date(normalized);
+  } else {
+    const zone = stringValue(payload, ["measured_at_timezone", "timezone"]) ?? defaultTimezone();
+    const desired = new Date(`${normalized}Z`);
+    if (!Number.isFinite(desired.getTime())) throw new IngestError(400, "Invalid measurement timestamp");
+    let guess = desired.getTime();
+    try {
+      for (let i = 0; i < 3; i++) {
+        const wall = new Date(formatDateTime(new Date(guess), zone).replace(" ", "T") + "Z").getTime();
+        const correction = desired.getTime() - wall;
+        if (Math.abs(correction) < 1000) break;
+        guess += correction;
+      }
+      parsed = new Date(guess);
+    } catch { throw new IngestError(400, "Invalid measurement timezone"); }
+  }
   if (Number.isNaN(parsed.getTime())) {
     throw new IngestError(400, `Invalid measurement timestamp: ${text}`);
   }
@@ -208,7 +229,10 @@ function parseTimestamp(payload: Record<string, unknown>, now: Date): Date {
 
 function resolveUserName(payload: Record<string, unknown>, raw: RawData): string {
   const direct = stringValue(payload, ["user", "user_name", "name"]);
-  if (direct) return direct;
+  if (direct) {
+    if ((raw.users ?? []).some((user) => user.name === direct)) return direct;
+    throw new IngestError(400, "Unknown measurement user");
+  }
 
   const profileId = stringValue(payload, ["profile_id", "profileId", "duid", "user_type_code"]);
   if (profileId) {
@@ -221,8 +245,8 @@ function resolveUserName(payload: Record<string, unknown>, raw: RawData): string
     if (user?.name) return user.name;
   }
 
-  if (DEFAULT_INGEST_USER) {
-    const user = (raw.users ?? []).find((candidate) => candidate.name === DEFAULT_INGEST_USER);
+  if (defaultIngestUser()) {
+    const user = (raw.users ?? []).find((candidate) => candidate.name === defaultIngestUser());
     if (user?.name) return user.name;
     throw new IngestError(400, "HEALTH_INGEST_DEFAULT_USER must match an existing user");
   }
@@ -368,6 +392,7 @@ function fillMetricFromHistory(
 }
 
 function completeEstimatedMetrics(raw: RawData, userName: string, metrics: Record<string, number>) {
+  const originalKeys = new Set(Object.keys(metrics));
   const filledKeys: string[] = [];
   const keysToEstimate = [
     "body_fat_percent",
@@ -391,50 +416,50 @@ function completeEstimatedMetrics(raw: RawData, userName: string, metrics: Recor
     fillMetricFromHistory(raw, userName, metrics, key, filledKeys);
   }
 
-  if (metrics.weight_kg && metrics.body_fat_percent) {
+  if (metrics.fat_mass_kg === undefined && metrics.weight_kg && metrics.body_fat_percent) {
     metrics.fat_mass_kg = roundMetric(
       "fat_mass_kg",
       (metrics.weight_kg * metrics.body_fat_percent) / 100
     );
   }
-  if (metrics.weight_kg && metrics.body_fat_percent) {
+  if (metrics.fat_free_body_weight_kg === undefined && metrics.weight_kg && metrics.body_fat_percent) {
     metrics.fat_free_body_weight_kg = roundMetric(
       "fat_free_body_weight_kg",
       metrics.weight_kg - (metrics.weight_kg * metrics.body_fat_percent) / 100
     );
   }
-  if (metrics.weight_kg && metrics.muscle_mass_kg) {
+  if (metrics.muscle_percent === undefined && metrics.weight_kg && metrics.muscle_mass_kg) {
     metrics.muscle_percent = roundMetric(
       "muscle_percent",
       (metrics.muscle_mass_kg / metrics.weight_kg) * 100
     );
   }
-  if (metrics.weight_kg && metrics.body_water_percent) {
+  if (metrics.body_water_mass_kg === undefined && metrics.weight_kg && metrics.body_water_percent) {
     metrics.body_water_mass_kg = roundMetric(
       "body_water_mass_kg",
       (metrics.weight_kg * metrics.body_water_percent) / 100
     );
   }
-  if (metrics.weight_kg && metrics.bone_mineral_content_kg) {
+  if (metrics.bone_mineral_percent === undefined && metrics.weight_kg && metrics.bone_mineral_content_kg) {
     metrics.bone_mineral_percent = roundMetric(
       "bone_mineral_percent",
       (metrics.bone_mineral_content_kg / metrics.weight_kg) * 100
     );
   }
-  if (metrics.weight_kg && metrics.protein_percent) {
+  if (metrics.protein_mass_kg === undefined && metrics.weight_kg && metrics.protein_percent) {
     metrics.protein_mass_kg = roundMetric(
       "protein_mass_kg",
       (metrics.weight_kg * metrics.protein_percent) / 100
     );
   }
-  if (metrics.weight_kg && metrics.standard_weight_kg) {
+  if (metrics.weight_control_kg === undefined && metrics.weight_kg && metrics.standard_weight_kg) {
     metrics.weight_control_kg = roundMetric(
       "weight_control_kg",
       metrics.standard_weight_kg - metrics.weight_kg
     );
   }
 
-  return filledKeys;
+  return Object.keys(metrics).filter((key) => !originalKeys.has(key));
 }
 
 function buildMetrics(payload: Record<string, unknown>): Record<string, number> {
@@ -483,7 +508,7 @@ function buildMetrics(payload: Record<string, unknown>): Record<string, number> 
     );
   }
 
-  if (!metrics.weight_kg) {
+  if (!metrics.weight_kg || metrics.weight_kg <= 0 || metrics.weight_kg > 300) {
     throw new IngestError(400, "Measurement payload must include weight or weight_kg");
   }
 
@@ -508,8 +533,10 @@ function buildRawFields(payload: Record<string, unknown>) {
 
 function buildMeasurement(payload: Record<string, unknown>, raw: RawData, now: Date): RawMeasurement {
   const measuredDate = parseTimestamp(payload, now);
-  const timezone = stringValue(payload, ["measured_at_timezone", "timezone"]) ?? DEFAULT_TIMEZONE;
-  const measuredAt = formatDateTime(measuredDate, timezone);
+  const timezone = stringValue(payload, ["measured_at_timezone", "timezone"]) ?? defaultTimezone();
+  let measuredAt: string;
+  try { measuredAt = formatDateTime(measuredDate, timezone); }
+  catch { throw new IngestError(400, "Invalid measurement timezone"); }
   const measuredAtUnixSeconds = Math.floor(measuredDate.getTime() / 1000);
   const userName = resolveUserName(payload, raw);
   const profileId = stringValue(payload, ["profile_id", "profileId", "duid", "user_type_code"]);
@@ -564,28 +591,86 @@ function measurementWeight(measurement: RawMeasurement): number | null {
   return null;
 }
 
+function sourceId(measurement: RawMeasurement) {
+  return stringValue(measurement.raw_xiaomi_fields ?? {}, ["source_measurement_id"]);
+}
+
+function isBle(measurement: RawMeasurement) {
+  return measurement.source?.app === "Xiaomi S400 BLE bridge" ||
+    (measurement.source?.api_endpoint === "/api/health-data/measurements" &&
+     measurement.raw_xiaomi_fields?.impedance !== undefined &&
+     measurement.raw_xiaomi_fields?.xiaomi_home_full_report !== true);
+}
+
+function sameFingerprint(a: RawMeasurement, b: RawMeasurement) {
+  return ["weight_kg", "bioimpedance_resistance_raw", "bioimpedance_resistance_2_raw"].every((key) => {
+    const left = metricNumber(a, key), right = metricNumber(b, key);
+    return left !== null && right !== null && Math.abs(left - right) < 0.01;
+  });
+}
+
 function isDuplicate(existing: RawMeasurement, incoming: RawMeasurement) {
   if (existing.user !== incoming.user) return false;
+  const leftId = sourceId(existing), rightId = sourceId(incoming);
+  if (leftId && rightId) return leftId === rightId;
   const existingUnix = numberValue(existing as Record<string, unknown>, ["measured_at_unix_seconds"]);
   const incomingUnix = numberValue(incoming as Record<string, unknown>, ["measured_at_unix_seconds"]);
   if (existingUnix === null || incomingUnix === null) return false;
   if (Math.abs(existingUnix - incomingUnix) > DUPLICATE_WINDOW_SECONDS) return false;
-
-  const existingWeight = measurementWeight(existing);
-  const incomingWeight = measurementWeight(incoming);
-  if (existingWeight === null || incomingWeight === null) return false;
-  if (Math.abs(existingWeight - incomingWeight) > 0.05) return false;
-
-  const allowCloseDuplicate =
-    incoming.raw_xiaomi_fields?.xiaomi_home_full_report === true ||
-    incoming.raw_xiaomi_fields?.allow_close_duplicate === true;
-  if (allowCloseDuplicate) {
-    const existingMinute = existing.measured_at_minute ?? existing.measured_at?.slice(0, 16);
-    const incomingMinute = incoming.measured_at_minute ?? incoming.measured_at?.slice(0, 16);
-    return existingMinute === incomingMinute;
+  const leftWeight = measurementWeight(existing), rightWeight = measurementWeight(incoming);
+  if (leftWeight === null || rightWeight === null || Math.abs(leftWeight - rightWeight) > 0.05) return false;
+  if (incoming.raw_xiaomi_fields?.allow_close_duplicate === true ||
+      incoming.raw_xiaomi_fields?.xiaomi_home_full_report === true) {
+    return existingUnix === incomingUnix;
   }
-
+  if (existingUnix === incomingUnix) return true;
+  // Distinct impedance values are evidence of separate weigh-ins, even at the same weight.
+  for (const key of ["bioimpedance_resistance_raw", "bioimpedance_resistance_2_raw"]) {
+    const left = metricNumber(existing, key), right = metricNumber(incoming, key);
+    if (left !== null && right !== null && Math.abs(left - right) >= 0.01) return false;
+  }
   return true;
+}
+
+function findDuplicate(measurements: RawMeasurement[], incoming: RawMeasurement) {
+  const exact = measurements.find((existing) => isDuplicate(existing, incoming));
+  if (exact) return exact;
+  if (!isBle(incoming)) return undefined;
+  const latest = measurements.filter((row) => row.user === incoming.user &&
+    (row.measured_at_unix_seconds ?? 0) <= (incoming.measured_at_unix_seconds ?? 0))
+    .sort((a, b) => (b.measured_at_unix_seconds ?? 0) - (a.measured_at_unix_seconds ?? 0))[0];
+  if (!latest || (sourceId(latest) && sourceId(incoming))) return undefined;
+  // Legacy broadcasts lack a measurement id. Only collapse an unchanged latest result.
+  return sameFingerprint(latest, incoming) ? latest : undefined;
+}
+
+export function deduplicateMeasurements(measurements: RawMeasurement[]) {
+  const kept: RawMeasurement[] = [];
+  let removed = 0;
+  for (const row of [...measurements].sort((a, b) => (a.measured_at_unix_seconds ?? 0) - (b.measured_at_unix_seconds ?? 0))) {
+    // Historical full Xiaomi reports remain distinct unless their exact timestamp matches.
+    const duplicate = isBle(row) ? findDuplicate(kept, row) : kept.find((other) =>
+      other.user === row.user && other.measured_at_unix_seconds === row.measured_at_unix_seconds && sameFingerprint(other, row));
+    if (duplicate) { mergeRicherDuplicate(duplicate, row); removed++; }
+    else kept.push(structuredClone(row));
+  }
+  normalizeMeasurements(kept);
+  return { measurements: kept, removed };
+}
+
+export function repairScaleDuplicates(options: IngestOptions, write = false) {
+  const raw = JSON.parse(fs.readFileSync(options.dataFile, "utf8")) as RawData;
+  const before = raw.measurements?.length ?? 0;
+  const result = deduplicateMeasurements(raw.measurements ?? []);
+  if (write && result.removed) {
+    const backup = `${options.dataFile}.backup-${Date.now()}`;
+    fs.copyFileSync(options.dataFile, backup, fs.constants.COPYFILE_EXCL);
+    raw.measurements = result.measurements;
+    atomicWrite(options.dataFile, `${JSON.stringify(raw, null, 2)}\n`);
+    writeWideCsv(path.join(options.dataDir, "xiaomi-body-scale-measurements.csv"), raw);
+    writeLongCsv(path.join(options.dataDir, "xiaomi-body-scale-measurements-long.csv"), raw);
+  }
+  return { before, after: result.measurements.length, removed: result.removed };
 }
 
 function valuesDiffer(left: unknown, right: unknown) {
@@ -598,16 +683,14 @@ function mergeRicherDuplicate(existing: RawMeasurement, incoming: RawMeasurement
   const incomingMetrics = incoming.metrics ?? {};
   const existingDerivedKeys = new Set(derivedMetricKeys(existing));
   const incomingDerivedKeys = new Set(derivedMetricKeys(incoming));
-  const existingHasDerivedMetrics = hasDerivedMetrics(existing);
   const replacedDerivedKeys = new Set<string>();
   const addedDerivedKeys = new Set<string>();
 
   for (const [key, value] of Object.entries(incomingMetrics)) {
     const existingValue = existingMetrics[key];
     const shouldUseIncoming =
-      existingValue === undefined ||
-      existingDerivedKeys.has(key) ||
-      (existingHasDerivedMetrics && !incomingDerivedKeys.has(key));
+      existingValue === undefined || existingValue === null ||
+      (existingDerivedKeys.has(key) && !incomingDerivedKeys.has(key));
     if (!shouldUseIncoming) continue;
 
     if (valuesDiffer(existingValue, value)) {
@@ -616,6 +699,7 @@ function mergeRicherDuplicate(existing: RawMeasurement, incoming: RawMeasurement
     }
     if (existingDerivedKeys.has(key) && !incomingDerivedKeys.has(key)) {
       replacedDerivedKeys.add(key);
+      changed = true;
     }
     if (existingValue === undefined && incomingDerivedKeys.has(key)) {
       addedDerivedKeys.add(key);
@@ -700,12 +784,6 @@ function normalizeMeasurements(measurements: RawMeasurement[]) {
     measurement.same_minute_index = sameMinuteIndex;
     measurement.same_minute_count = minuteCounts.get(key) ?? 1;
   });
-}
-
-function atomicWrite(filePath: string, contents: string) {
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, contents);
-  fs.renameSync(tmpPath, filePath);
 }
 
 function csvCell(value: unknown): string {
@@ -813,7 +891,7 @@ export function ingestScaleMeasurement(payload: unknown, options: IngestOptions)
   const measurement = buildMeasurement(payload, raw, now);
   const measurements = raw.measurements ?? [];
 
-  const duplicate = measurements.find((existing) => isDuplicate(existing, measurement));
+  const duplicate = findDuplicate(measurements, measurement);
   if (duplicate) {
     const updated = mergeRicherDuplicate(duplicate, measurement);
     if (updated) {

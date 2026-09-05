@@ -45,7 +45,7 @@ function startOfLocalDay(date: Date) {
 function daysBetween(startDate: Date, endDate: Date) {
   return Math.max(
     0,
-    Math.floor((startOfLocalDay(endDate).getTime() - startOfLocalDay(startDate).getTime()) / DAY_MS)
+    Math.round((Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate())) / DAY_MS)
   );
 }
 

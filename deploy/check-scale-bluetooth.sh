@@ -33,30 +33,50 @@ discovering="$(
     || true
 )"
 
-if [ "$bridge_active" = "active" ] && [ "$discovering" = "true" ]; then
+# Discovering alone can stay true while the controller is wedged. Check errors too.
+bridge_errors="$(user_journal -u xiaomi-scale-bridge.service --since "$WINDOW" --no-pager 2>/dev/null | grep -Ec "org.bluez.Error.InProgress|No Bluetooth adapters found|BLE scanner failed" || true)"
+kernel_errors="$(journalctl -k --since "$WINDOW" --no-pager 2>/dev/null | grep -Ec "Bluetooth: hci0: command .* tx timeout|Bluetooth: hci0: Unable to disable scanning|Bluetooth: hci0: Opcode .* failed" || true)"
+
+state_file="${BRIDGE_STATE_FILE:-/home/$TARGET_USER/.local/state/health-dashboard/scale-bridge.json}"
+state_healthy="$(python3 - "$state_file" <<'PY_STATE'
+import json, pathlib, sys, time
+p = pathlib.Path(sys.argv[1])
+try:
+    r = json.loads(p.read_text())
+    print("yes" if time.time() - float(r.get("heartbeat_at", 0)) < 120 else "no")
+except FileNotFoundError:
+    print("yes")  # Compatibility with bridges installed before persistent state.
+except (ValueError, OSError, TypeError):
+    print("no")
+PY_STATE
+)"
+
+unhealthy_file="$STATE_DIR/unhealthy-since"
+now="$(date +%s)"
+# Ignore old journal errors after a successful reset.
+last_reset=0
+if [ -s "$STATE_DIR/last-reset" ]; then
+  last_reset="$(cat "$STATE_DIR/last-reset")"
+fi
+if [ "$bridge_active" = "active" ] && [ "$discovering" = "true" ] && [ "$state_healthy" = "yes" ] && {
+  [ "$bridge_errors" -lt 3 ] && [ "$kernel_errors" -eq 0 ] || [ "$((now - last_reset))" -lt 600 ];
+}; then
+  rm -f "$unhealthy_file"
   echo "Xiaomi scale Bluetooth watchdog: healthy."
   exit 0
 fi
 
-bridge_errors="$(
-  user_journal -u xiaomi-scale-bridge.service --since "$WINDOW" --no-pager 2>/dev/null \
-    | grep -Ec "org.bluez.Error.InProgress|No Bluetooth adapters found|BLE scanner failed repeatedly" \
-    || true
-)"
-kernel_errors="$(
-  journalctl -k --since "$WINDOW" --no-pager 2>/dev/null \
-    | grep -Ec "Bluetooth: hci0: command 0x200c tx timeout|Bluetooth: hci0: Unable to disable scanning|Bluetooth: hci0: Opcode 0x200c failed" \
-    || true
-)"
-
-if [ "$bridge_active" != "active" ] && [ "$bridge_errors" -eq 0 ] && [ "$kernel_errors" -eq 0 ]; then
-  echo "Xiaomi scale bridge is $bridge_active; starting user service."
-  user_systemctl start xiaomi-scale-bridge.service || true
-  exit 0
+if [ ! -s "$unhealthy_file" ]; then
+  echo "$now" > "$unhealthy_file"
 fi
-
-if [ "$bridge_errors" -eq 0 ] && [ "$kernel_errors" -eq 0 ]; then
-  echo "Xiaomi scale Bluetooth watchdog: no recent scan errors. bridge=$bridge_active discovering=${discovering:-unknown}"
+unhealthy_since="$(cat "$unhealthy_file")"
+if [ "$bridge_active" != "active" ]; then
+  user_systemctl reset-failed xiaomi-scale-bridge.service || true
+  user_systemctl start xiaomi-scale-bridge.service || true
+fi
+# Also recover silent stalls without recognizable journal errors, after two checks.
+if [ "$bridge_errors" -lt 3 ] && [ "$kernel_errors" -eq 0 ] && [ "$((now - unhealthy_since))" -lt 120 ]; then
+  echo "Xiaomi scale Bluetooth watchdog: waiting for scan recovery."
   exit 0
 fi
 
@@ -74,4 +94,4 @@ fi
 
 echo "$now" > "$last_reset_file"
 echo "Xiaomi scale Bluetooth watchdog: resetting hci0. bridge_errors=$bridge_errors kernel_errors=$kernel_errors"
-"$RESET_SCRIPT"
+TARGET_USER="$TARGET_USER" "$RESET_SCRIPT"

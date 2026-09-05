@@ -49,7 +49,7 @@ curl -X POST "http://127.0.0.1:5000/api/health-data/measurements" \
   }'
 ```
 
-Сервер считает повторные измерения одного пользователя с тем же весом в пределах 15 минут дубликатами. BLE bridge дополнительно подавляет тот же `(profile_id, weight, impedance, impedanceLow)` fingerprint на `21600` секунд.
+Сервер распознаёт повторы по идентификатору результата весов, исходному времени и неизменившемуся последнему набору веса с обоими сопротивлениями. Bridge сохраняет очередь и подтверждённые результаты на диск; повторы не появляются снова через шесть часов.
 
 ## Рекомендуемый Сбор Данных
 
@@ -182,3 +182,39 @@ Endpoint понимает эти имена:
 Если входной payload содержит `profile_id`, `duid` или `user_type_code`, сервер использует это значение для выбора пользователя из `users[].type_code`.
 
 Если BLE payload содержит только сырые поля S400, сервер дополняет недостающие body composition metrics из предыдущих полных отчетов пользователя методом `weighted nearest Xiaomi Home full reports`. В source metadata появятся `derived_metrics_method` и `derived_metric_keys`. Благодаря этому quick metrics в dashboard должны обновляться одним timestamp: weight, body fat, muscle, water, score и heart rate.
+
+## Recovery and duplicate prevention (2026-09)
+
+The bridge consumes fresh authenticated S400 objects from the pinned `xiaomi-ble` decoder. It pairs weight/high impedance and low impedance by device, profile and raw device timestamp. Cumulative sensor state must never be reused as a new measurement. A device timestamp is retained as an opaque source identity; the observation timestamp remains the receipt time until the scale clock has been independently validated.
+
+Successful deliveries and the pending HTTP outbox are persisted in `~/.local/state/health-dashboard/scale-bridge.json` (override: `XIAOMI_SCALE_STATE_FILE`). Failed requests remain queued across service restarts. An unchanged result has no six-hour expiry. The server independently recognizes source IDs, and legacy identical weight/dual-impedance rebroadcasts of the latest result. Different profiles and different impedances are preserved. With no device identity available, two consecutive genuinely identical raw results cannot be distinguished; full Xiaomi Home reports can reconcile those cases.
+
+`GET /api/status` includes `scale.status`, heartbeat age, last radio packet, last scale packet, last acknowledged delivery, pending delivery count and an error code. A live browser connection alone does not establish that Bluetooth works.
+
+Install the controller watchdog as an administrator:
+
+```bash
+sudo bash deploy/install-scale-bluetooth-watchdog.sh
+```
+
+It checks every two minutes, detects repeated scanner/kernel failures even when BlueZ reports discovery active, detects stale bridge heartbeats and persistent stopped discovery, and resets the USB Bluetooth controller with a 15-minute cooldown. Root services execute root-owned copies under `/usr/local/libexec/health-dashboard`; rerun the installer after editing watchdog scripts. The bridge also restarts its scanner every 15 minutes and detects radio silence after previously receiving advertisements.
+
+Repair legacy repetitions after stopping the bridge, with the same data path as the server:
+
+```bash
+systemctl --user stop xiaomi-scale-bridge.service
+HEALTH_DATA_DIR=/path/to/xiaomi-body-scale npx tsx scripts/repair-scale-duplicates.ts
+HEALTH_DATA_DIR=/path/to/xiaomi-body-scale npx tsx scripts/repair-scale-duplicates.ts --write
+systemctl --user restart health-dashboard.service
+systemctl --user start xiaomi-scale-bridge.service
+```
+
+The write command keeps an original JSON backup next to the source, regenerates both CSV exports, and can be rerun safely. The earliest observation remains the canonical date. Distinct full-history Xiaomi Home reports are retained.
+
+Validation:
+
+```bash
+npm test
+npm run build
+.venv-scale-bridge/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
