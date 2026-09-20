@@ -17,6 +17,7 @@ import {
   Footprints,
   MoveDown,
   RefreshCw,
+  Stethoscope,
   Trophy,
   Users,
   Waves
@@ -63,7 +64,7 @@ type CalendarCell = {
   inMonth: boolean;
 };
 
-type SportWeekDayStatus = "workout" | "rest" | "open" | "future";
+type SportWeekDayStatus = "workout" | "rest" | "sick" | "open" | "future";
 
 type SportWeekDayState = {
   key: string;
@@ -93,8 +94,16 @@ type SportRepMetric = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_LENGTH_DAYS = 7;
-const WEEKLY_WORKOUT_TARGET = 4;
-const WEEKLY_REST_ALLOWANCE = WEEK_LENGTH_DAYS - WEEKLY_WORKOUT_TARGET;
+// The last full week of August 2026 starts on Monday, August 24.
+const THREE_WORKOUT_WEEK_START = "2026-08-24";
+
+function weeklyWorkoutTarget(weekKey: string) {
+  return weekKey >= THREE_WORKOUT_WEEK_START ? 3 : 4;
+}
+
+function weeklyRestAllowance(weekKey: string) {
+  return WEEK_LENGTH_DAYS - weeklyWorkoutTarget(weekKey);
+}
 const MAX_REPS_LIMIT = 1000;
 const EMPTY_MAX_REPS: SportMaxReps = {
   pullUps: null,
@@ -313,7 +322,7 @@ function entryMap(entries: SportEntry[]) {
 }
 
 function activityDateSet(user: SportUser) {
-  return new Set(user.entries.filter((entry) => entry.activities.length > 0).map((entry) => entry.date));
+  return new Set(user.entries.filter((entry) => !entry.sick && entry.activities.length > 0).map((entry) => entry.date));
 }
 
 function dateKeysBetween(startKey: string, endKey: string) {
@@ -330,14 +339,14 @@ function countWorkoutDays(dates: Set<string>, startKey: string, endKey: string) 
   return dateKeysBetween(startKey, endKey).filter((key) => dates.has(key)).length;
 }
 
-function emptySmartStreak(): SmartStreak {
+function emptySmartStreak(today: Date): SmartStreak {
   return {
     currentStreakDays: 0,
     bestStreakDays: 0,
     currentStreakStartDate: null,
     currentStreakWorkoutDays: 0,
     currentStreakRestDays: 0,
-    currentWeekRestAllowance: WEEKLY_REST_ALLOWANCE
+    currentWeekRestAllowance: weeklyRestAllowance(dateKey(startOfWeek(today)))
   };
 }
 
@@ -348,11 +357,12 @@ function restDayCarryoverStartKey(user: SportUser) {
 function calculateSmartDayStreak(
   dates: Set<string>,
   today: Date,
-  restCarryoverStartKey: string | null
+  restCarryoverStartKey: string | null,
+  sickDates: Set<string>
 ): SmartStreak {
   const todayKey = dateKey(today);
   const workoutDates = [...dates].filter((key) => key <= todayKey).sort();
-  if (workoutDates.length === 0) return emptySmartStreak();
+  if (workoutDates.length === 0) return emptySmartStreak(today);
 
   const restCarryoverStartWeekKey = restCarryoverStartKey
     ? dateKey(startOfWeek(parseDateKey(restCarryoverStartKey)))
@@ -372,7 +382,8 @@ function calculateSmartDayStreak(
   }
 
   function activeWeekRestAllowance(weekKey = activeWeekKey) {
-    return WEEKLY_REST_ALLOWANCE + (weekCanUseCarryover(weekKey) ? carriedRestDays : 0);
+    return weeklyRestAllowance(weekKey ?? dateKey(startOfWeek(today))) +
+      (weekCanUseCarryover(weekKey) ? carriedRestDays : 0);
   }
 
   function resetCurrentStreak() {
@@ -397,6 +408,12 @@ function calculateSmartDayStreak(
 
   while (dateKey(cursor) <= todayKey) {
     const key = dateKey(cursor);
+    // Excluded days neither advance nor break a streak. Entire sick weeks
+    // also cannot mint additional rest-day carryover.
+    if (sickDates.has(key)) {
+      cursor = addDays(cursor, 1);
+      continue;
+    }
     const hasWorkout = dates.has(key);
 
     if (currentStreakDays === 0) {
@@ -431,6 +448,11 @@ function calculateSmartDayStreak(
     cursor = addDays(cursor, 1);
   }
 
+  const todayWeekKey = dateKey(startOfWeek(today));
+  const nextWeekCarryover = weekCanUseCarryover(activeWeekKey) && weekCanUseCarryover(todayWeekKey)
+    ? Math.max(0, activeWeekRestAllowance() - activeWeekRestDays)
+    : 0;
+
   return {
     currentStreakDays,
     bestStreakDays,
@@ -438,16 +460,19 @@ function calculateSmartDayStreak(
     currentStreakWorkoutDays,
     currentStreakRestDays,
     currentWeekRestAllowance:
-      currentStreakDays > 0 && activeWeekKey === dateKey(startOfWeek(today))
-        ? activeWeekRestAllowance()
-        : WEEKLY_REST_ALLOWANCE
+      currentStreakDays > 0
+        ? activeWeekKey === todayWeekKey
+          ? activeWeekRestAllowance()
+          : weeklyRestAllowance(todayWeekKey) + nextWeekCarryover
+        : weeklyRestAllowance(todayWeekKey)
   };
 }
 
 function buildCurrentWeekDayStates(
   dates: Set<string>,
   today: Date,
-  currentStreakStartDate: string | null
+  currentStreakStartDate: string | null,
+  sickDates = new Set<string>()
 ): SportWeekDayState[] {
   const todayKey = dateKey(today);
   const weekStart = startOfWeek(today);
@@ -458,7 +483,7 @@ function buildCurrentWeekDayStates(
     const hasWorkout = dates.has(key);
     const isPastOrToday = key <= todayKey;
     const streakCoversDay = Boolean(currentStreakStartDate && key >= currentStreakStartDate);
-    const status: SportWeekDayStatus = hasWorkout
+    const status: SportWeekDayStatus = sickDates.has(key) ? "sick" : hasWorkout
       ? "workout"
       : !isPastOrToday
         ? "future"
@@ -477,6 +502,7 @@ function buildCurrentWeekDayStates(
 }
 
 function streakDayStatusLabel(status: SportWeekDayStatus) {
+  if (status === "sick") return "больничный · день исключён из стрика";
   if (status === "workout") return "тренировка";
   if (status === "rest") return "отдых в балансе";
   if (status === "future") return "впереди";
@@ -491,19 +517,21 @@ function monthWorkoutLabel(value: number) {
   return pluralRu(value, ["день", "дня", "дней"]);
 }
 
-function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
+export function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
-  const smartStreak = calculateSmartDayStreak(dates, today, restDayCarryoverStartKey(user));
+  const sickDates = new Set(user.entries.filter((entry) => entry.sick).map((entry) => entry.date));
+  const smartStreak = calculateSmartDayStreak(dates, today, restDayCarryoverStartKey(user), sickDates);
   const todayKey = dateKey(today);
   const currentWeekStart = startOfWeek(today);
   const currentWeekKey = dateKey(currentWeekStart);
   const currentWeekEndKey = dateKey(addDays(currentWeekStart, WEEK_LENGTH_DAYS - 1));
   const monthPrefix = dateKey(startOfMonth(visibleMonth)).slice(0, 7);
-  const monthEntries = user.entries.filter((entry) => entry.date.startsWith(monthPrefix));
+  const workoutEntries = user.entries.filter((entry) => !entry.sick && entry.activities.length > 0);
+  const monthEntries = workoutEntries.filter((entry) => entry.date.startsWith(monthPrefix));
   const monthRunDistanceKm = roundDistanceKm(
     monthEntries.reduce((sum, entry) => sum + (entry.runDistanceKm ?? 0), 0)
   );
-  const pastOrTodayEntries = user.entries.filter((entry) => entry.date <= todayKey);
+  const pastOrTodayEntries = workoutEntries.filter((entry) => entry.date <= todayKey);
   const lastWorkoutDate = pastOrTodayEntries[pastOrTodayEntries.length - 1]?.date ?? null;
   const todayDone = dates.has(todayKey);
   const daysBeforeToday = dayDistance(currentWeekStart, today);
@@ -511,13 +539,17 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
     ? countWorkoutDays(dates, currentWeekKey, previousDateKey(todayKey))
     : 0;
   const weekWorkoutDays = countWorkoutDays(dates, currentWeekKey, todayKey);
-  const weekRestDaysUsed = daysBeforeToday - workoutsBeforeToday;
+  const sickDaysBeforeToday = countWorkoutDays(sickDates, currentWeekKey, previousDateKey(todayKey));
+  const weekRestDaysUsed = daysBeforeToday - workoutsBeforeToday - sickDaysBeforeToday;
   const weekRestDaysAllowance = smartStreak.currentWeekRestAllowance;
   const weekRestDaysRemaining = Math.max(0, weekRestDaysAllowance - weekRestDaysUsed);
-  const weekWorkoutDaysRemaining = Math.max(0, WEEKLY_WORKOUT_TARGET - weekWorkoutDays);
+  const weekSickDays = countWorkoutDays(sickDates, currentWeekKey, currentWeekEndKey);
+  const weekWorkoutTarget = Math.max(0, weeklyWorkoutTarget(currentWeekKey) - weekSickDays);
+  const weekWorkoutDaysRemaining = Math.max(0, weekWorkoutTarget - weekWorkoutDays);
   const daysRemainingAfterToday = Math.max(0, dayDistance(today, parseDateKey(currentWeekEndKey)));
-  const availableWorkoutDays = daysRemainingAfterToday + (todayDone ? 0 : 1);
-  const currentWeekFulfilled = weekWorkoutDays >= WEEKLY_WORKOUT_TARGET;
+  const remainingSickDays = countWorkoutDays(sickDates, todayKey, currentWeekEndKey);
+  const availableWorkoutDays = daysRemainingAfterToday + (todayDone ? 0 : 1) - remainingSickDays;
+  const currentWeekFulfilled = weekWorkoutDays >= weekWorkoutTarget;
   const currentWeekViable =
     currentWeekFulfilled ||
     (weekRestDaysUsed <= weekRestDaysAllowance && weekWorkoutDaysRemaining <= availableWorkoutDays);
@@ -532,7 +564,7 @@ function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): 
     weekRestDaysUsed,
     weekRestDaysRemaining,
     weekRestDaysAllowance,
-    weekDayStates: buildCurrentWeekDayStates(dates, today, smartStreak.currentStreakStartDate),
+    weekDayStates: buildCurrentWeekDayStates(dates, today, smartStreak.currentStreakStartDate, sickDates),
     currentWeekFulfilled,
     currentWeekViable,
     todayDone,
@@ -616,6 +648,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   }, [data, today, visibleMonth]);
 
   const selectedDateEntry = selectedEntriesByDate.get(selectedDate) ?? null;
+  const selectedDateSick = selectedDateEntry?.sick ?? false;
   const selectedDateActivities = selectedDateEntry?.activities ?? [];
   const selectedDateRunDistanceKm = selectedDateEntry?.runDistanceKm ?? null;
   const selectedDateMaxReps = selectedDateEntry?.maxReps ?? EMPTY_MAX_REPS;
@@ -649,10 +682,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     monthActivities: 0,
     monthRunDistanceKm: 0,
     weekWorkoutDays: 0,
-    weekWorkoutDaysRemaining: WEEKLY_WORKOUT_TARGET,
+    weekWorkoutDaysRemaining: weeklyWorkoutTarget(dateKey(startOfWeek(today))),
     weekRestDaysUsed: 0,
-    weekRestDaysRemaining: WEEKLY_REST_ALLOWANCE,
-    weekRestDaysAllowance: WEEKLY_REST_ALLOWANCE,
+    weekRestDaysRemaining: weeklyRestAllowance(dateKey(startOfWeek(today))),
+    weekRestDaysAllowance: weeklyRestAllowance(dateKey(startOfWeek(today))),
     weekDayStates: buildCurrentWeekDayStates(new Set<string>(), today, null),
     currentWeekFulfilled: false,
     currentWeekViable: true,
@@ -692,7 +725,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   async function saveSportDay(
     nextActivities: SportActivityKey[],
     nextRunDistanceKm: number | null,
-    nextMaxReps: SportMaxReps
+    nextMaxReps: SportMaxReps,
+    sick = selectedDateSick
   ) {
     if (!selectedUser) return;
 
@@ -704,6 +738,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
       const response = await updateSportDay({
         userId: selectedUser.id,
         date: selectedDate,
+        sick,
         activities,
         runDistanceKm: activities.includes("run") ? nextRunDistanceKm : null,
         maxReps
@@ -877,6 +912,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
 
           <div className="sport-legend" aria-label="Типы спорта">
+            <span><Stethoscope size={15} />Больничный</span>
             {availableStrengthActivities.length > 0 ? (
               <span className="sport-legend-strength">
                 <span className="sport-legend-swatch-stack" aria-hidden="true">
@@ -924,14 +960,15 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                     cell.inMonth ? "" : "muted",
                     isToday ? "today" : "",
                     isSelected ? "selected" : "",
-                    activities.length > 0 ? "has-activity" : ""
+                    activities.length > 0 ? "has-activity" : "",
+                    entry?.sick ? "sick" : ""
                   ]
                     .filter(Boolean)
                     .join(" ")}
                   key={cell.key}
                   type="button"
                   onClick={() => selectCalendarDate(cell)}
-                  aria-label={`${formatLongDate(cell.date)}: ${activityDetails
+                  aria-label={`${formatLongDate(cell.date)}: ${entry?.sick ? "больничный, " : ""}${activityDetails
                     .map((activity) => activity.label)
                     .join(", ") || "без занятий"}${
                     entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
@@ -939,6 +976,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                 >
                   <span className="sport-day-number">{cell.date.getDate()}</span>
                   <span className="sport-day-activity-bars">
+                    {entry?.sick ? <Stethoscope size={17} aria-hidden="true" /> : null}
                     {activityDetails.map((activity) => (
                       <i key={activity.key} style={{ backgroundColor: activity.color }} />
                     ))}
@@ -1000,7 +1038,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   aria-label={`${day.label}, ${day.dayNumber}: ${streakDayStatusLabel(day.status)}`}
                 >
                   <small>{day.label}</small>
-                  <b>{day.dayNumber}</b>
+                  {day.status === "sick" ? <Stethoscope size={16} aria-hidden="true" /> : <b>{day.dayNumber}</b>}
                 </span>
               ))}
             </div>
@@ -1032,6 +1070,25 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               </span>
             </div>
             {savingDate === selectedDate ? <RefreshCw className="spin" size={22} /> : <Check size={22} />}
+          </div>
+
+          <div className="sport-sick-control">
+            <button
+              className={`sport-activity-action sport-sick-toggle${selectedDateSick ? " active" : ""}`}
+              type="button"
+              aria-pressed={selectedDateSick}
+              aria-describedby="sport-sick-description"
+              disabled={savingDate !== null}
+              onClick={() => void saveSportDay(selectedDateActivities, selectedDateRunDistanceKm, selectedDateMaxReps, !selectedDateSick)}
+            >
+              <Stethoscope size={18} />
+              <span>Больничный</span>
+              {selectedDateSick ? <Check size={17} /> : null}
+            </button>
+            <p id="sport-sick-description">День пропускается: стрик сохраняется, дни отдыха не расходуются.</p>
+            {selectedDateSick && selectedDateActivities.length > 0 ? (
+              <p>Записанные занятия сохранятся и снова учтутся после снятия больничного.</p>
+            ) : null}
           </div>
 
           <div className="sport-activity-actions">
@@ -1226,11 +1283,11 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </div>
           </div>
 
-          {selectedDateActivities.length > 0 ? (
+          {selectedDateActivities.length > 0 || selectedDateSick ? (
             <button
               className="sport-clear-button"
               type="button"
-              onClick={() => saveActivities([])}
+              onClick={() => void saveSportDay([], null, EMPTY_MAX_REPS, false)}
               disabled={savingDate !== null}
             >
               <CircleOff size={17} />

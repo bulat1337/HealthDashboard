@@ -323,6 +323,7 @@ type SportMaxReps = {
 
 type SportEntry = {
   date: string;
+  sick: boolean;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
   maxReps: SportMaxReps;
@@ -347,6 +348,7 @@ type SportData = {
 type SportDayUpdate = {
   userId: string;
   date: string;
+  sick: boolean;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
   maxReps: SportMaxReps;
@@ -970,7 +972,8 @@ function normalizeSportEntryValue(rawEntry: unknown, allowedActivities: SportAct
   return {
     activities,
     runDistanceKm,
-    maxReps
+    maxReps,
+    sick: isPlainObject(rawEntry) && rawEntry.sick === true
   };
 }
 
@@ -982,7 +985,7 @@ function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivit
       date,
       ...normalizeSportEntryValue(rawEntry, allowedActivities)
     }))
-    .filter((entry): entry is SportEntry => isDateKey(entry.date) && entry.activities.length > 0)
+    .filter((entry): entry is SportEntry => isDateKey(entry.date) && (entry.activities.length > 0 || entry.sick))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -1055,6 +1058,10 @@ function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
     throw new Error("activities должен быть массивом.");
   }
 
+  if (body.sick !== undefined && typeof body.sick !== "boolean") {
+    throw new Error("sick должен быть логическим значением.");
+  }
+
   const allowed = new Set(user.activityTypes);
   const activities: SportActivityKey[] = [];
   for (const activity of body.activities) {
@@ -1068,6 +1075,7 @@ function sportDayUpdateFromBody(body: unknown): SportDayUpdate {
   return {
     userId: user.id,
     date: body.date,
+    sick: body.sick === true,
     activities,
     runDistanceKm: activities.includes("run")
       ? sportRunDistanceFromUnknown(body.runDistanceKm, true)
@@ -1086,17 +1094,20 @@ function sportEntryValueFromUpdate(update: SportDayUpdate) {
     pushUps: update.maxReps.pushUps
   }).filter((entry): entry is [keyof SportMaxReps, number] => entry[1] !== null);
 
-  if (update.runDistanceKm === null && maxRepsEntries.length === 0) {
+  if (!update.sick && update.runDistanceKm === null && maxRepsEntries.length === 0) {
     return update.activities;
   }
 
   const entry: {
     activities: SportActivityKey[];
+    sick?: boolean;
     runDistanceKm?: number;
     maxReps?: Partial<Record<keyof SportMaxReps, number>>;
   } = {
     activities: update.activities
   };
+
+  if (update.sick) entry.sick = true;
 
   if (update.runDistanceKm !== null) {
     entry.runDistanceKm = update.runDistanceKm;
@@ -1117,7 +1128,7 @@ function writeSportDay(update: SportDayUpdate) {
   const userRecord = isPlainObject(existingUserRecord) ? { ...existingUserRecord } : {};
   const entries = isPlainObject(userRecord.entries) ? { ...userRecord.entries } : {};
 
-  if (update.activities.length > 0) {
+  if (update.activities.length > 0 || update.sick) {
     entries[update.date] = sportEntryValueFromUpdate(update);
   } else {
     delete entries[update.date];
@@ -1125,11 +1136,13 @@ function writeSportDay(update: SportDayUpdate) {
 
   const currentSchemaVersion =
     typeof rawObject.schemaVersion === "number" ? rawObject.schemaVersion : 1;
-  const requiredSchemaVersion = hasSportMaxReps(update.maxReps)
-    ? 3
-    : update.runDistanceKm === null
-      ? 1
-      : 2;
+  const requiredSchemaVersion = update.sick
+    ? 4
+    : hasSportMaxReps(update.maxReps)
+      ? 3
+      : update.runDistanceKm === null
+        ? 1
+        : 2;
 
   users[update.userId] = {
     ...userRecord,

@@ -35,6 +35,27 @@ test('API ingestion, atomic sport edits, websocket updates, origin checks, and m
   const saved=await fetch(base+'/api/sport-data/day',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(sportBody)});
   assert.equal(saved.status,200);
   assert.equal(JSON.parse(fs.readFileSync(sport,'utf8')).users.bulat.entries['2026-09-05'].runDistanceKm,5);
+  const editSport = (body: unknown) => fetch(base+'/api/sport-data/day', {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+  });
+  const sickDay = {userId:'bulat', date:'2026-09-06', activities:[], sick:true};
+  assert.equal((await editSport({...sickDay, sick:'true'})).status,400);
+  assert.equal((await editSport(sickDay)).status,200);
+  const readEntries = async (id: string) => (await (await fetch(base+'/api/sport-data')).json()).data.users.find((user: any)=>user.id===id).entries;
+  assert.equal((await readEntries('bulat')).find((entry: any)=>entry.date===sickDay.date).sick,true);
+  assert.equal((await readEntries('diana')).length,0);
+  const persisted = JSON.parse(fs.readFileSync(sport,'utf8'));
+  assert.equal(persisted.schemaVersion,4);
+  assert.equal(persisted.users.bulat.entries[sickDay.date].sick,true);
+  assert.equal(persisted.users.bulat.entries[sportBody.date].runDistanceKm,5);
+  // Toggling the exclusion keeps any existing workout details intact.
+  assert.equal((await editSport({...sportBody,sick:true})).status,200);
+  assert.equal((await readEntries('bulat')).find((entry: any)=>entry.date===sportBody.date).runDistanceKm,5);
+  assert.equal((await editSport({...sportBody,sick:false})).status,200);
+  assert.equal((await readEntries('bulat')).find((entry: any)=>entry.date===sportBody.date).sick,false);
+  assert.equal((await editSport({...sickDay,sick:false})).status,200);
+  assert.ok(!(await readEntries('bulat')).some((entry: any)=>entry.date===sickDay.date));
+  assert.equal(JSON.parse(fs.readFileSync(sport,'utf8')).users.bulat.entries[sickDay.date],undefined);
   await new Promise(r=>setTimeout(r,100));
   assert.ok(messages.some(m=>m.type==='health-data-updated'));
   assert.ok(messages.some(m=>m.type==='sport-data-updated'));

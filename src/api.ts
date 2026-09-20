@@ -40,6 +40,7 @@ export async function updateSportDay(
   input: {
     userId: string;
     date: string;
+    sick?: boolean;
     activities: SportActivityKey[];
     runDistanceKm?: number | null;
     maxReps?: SportMaxReps;

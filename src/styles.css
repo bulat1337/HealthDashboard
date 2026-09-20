@@ -2032,6 +2032,30 @@ select:focus-visible {
   background: linear-gradient(180deg, #ffffff 0%, #f4f9ff 100%);
 }
 
+.sport-day-button.sick,
+.sport-streak-weekday.sick {
+  background: #f0f7fb;
+  color: #315c73;
+  border-color: #b7d0df;
+}
+
+.sport-sick-control {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.sport-activity-action.sport-sick-toggle {
+  --activity-color: #315c73;
+}
+
+.sport-sick-control p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sport-day-button.selected {
   border-color: rgba(30, 64, 175, 0.58);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);

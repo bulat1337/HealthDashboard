@@ -194,6 +194,7 @@ export type SportMaxReps = {
 
 export type SportEntry = {
   date: string;
+  sick?: boolean;
   activities: SportActivityKey[];
   runDistanceKm: number | null;
   maxReps: SportMaxReps;
