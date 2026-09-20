@@ -1,5 +1,5 @@
-import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import streakFlameActiveUrl from "../assets/duolingo-streak-flame-active.svg";
 import streakFlameIdleUrl from "../assets/duolingo-streak-flame-idle.svg";
 import type { LucideIcon } from "lucide-react";
@@ -18,10 +18,10 @@ import {
   MoveDown,
   RefreshCw,
   Stethoscope,
-  Trophy,
   Users,
   Waves
 } from "lucide-react";
+import { ActivityPicker } from "./ActivityPicker";
 import { fetchSportData, updateSportDay } from "../api";
 import type {
   SportActivityCatalogEntry,
@@ -134,15 +134,14 @@ const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
   "strength_lower",
 ];
 const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KEYS);
-const DEFAULT_STRENGTH_ACTIVITY_KEY: SportActivityKey = "strength_whole";
 const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   run: "Бег",
   walking: "Пешая прогулка",
   pilates: "Пилатес",
   yoga: "Йога",
-  strength_lower: "Lower body",
-  strength_upper: "Upper body",
-  strength_whole: "Whole body",
+  strength_lower: "Силовая · низ тела",
+  strength_upper: "Силовая · верх тела",
+  strength_whole: "Силовая · всё тело",
   cycling: "Велотренировка",
   sup: "Сап",
   pull_ups: "Подтягивания",
@@ -306,8 +305,10 @@ function buildCalendarCells(month: Date): CalendarCell[] {
   const firstDay = startOfMonth(month);
   const mondayOffset = (firstDay.getDay() + 6) % 7;
   const gridStart = addDays(firstDay, -mondayOffset);
+  const daysInMonth = new Date(firstDay.getFullYear(), firstDay.getMonth() + 1, 0).getDate();
+  const cellCount = Math.ceil((mondayOffset + daysInMonth) / 7) * 7;
 
-  return Array.from({ length: 42 }, (_, index) => {
+  return Array.from({ length: cellCount }, (_, index) => {
     const date = addDays(gridStart, index);
     return {
       date,
@@ -513,10 +514,6 @@ function dayStreakLabel(value: number) {
   return pluralRu(value, ["день", "дня", "дней"]);
 }
 
-function monthWorkoutLabel(value: number) {
-  return pluralRu(value, ["день", "дня", "дней"]);
-}
-
 export function calculateSportStats(user: SportUser, today: Date, visibleMonth: Date): SportStats {
   const dates = activityDateSet(user);
   const sickDates = new Set(user.entries.filter((entry) => entry.sick).map((entry) => entry.date));
@@ -581,19 +578,20 @@ function sortActivitiesForUser(user: SportUser, activities: SportActivityKey[]) 
   return user.activityTypes.filter((activity) => selected.has(activity));
 }
 
-function getStrengthActivity(activities: SportActivityKey[]) {
-  return activities.find((activity) => STRENGTH_ACTIVITY_KEY_SET.has(activity)) ?? null;
-}
-
 function withoutStrengthActivities(activities: SportActivityKey[]) {
   return activities.filter((activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity));
 }
 
 export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
+  const pageRef = useRef<HTMLDivElement>(null);
+  const streakRef = useRef<HTMLElement>(null);
+  const calendarRef = useRef<HTMLElement>(null);
+  const dayPanelRef = useRef<HTMLElement>(null);
   const [data, setData] = useState<SportData | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("bulat");
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => dateKey(today));
+  const [revealDayRequest, setRevealDayRequest] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingDate, setSavingDate] = useState<string | null>(null);
@@ -607,6 +605,24 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     pullUps: null,
     pushUps: null
   });
+
+  useEffect(() => {
+    const streak = streakRef.current;
+    if (!streak) return;
+    const measure = () => pageRef.current?.style.setProperty(
+      "--sport-streak-height", `${streak.getBoundingClientRect().height}px`
+    );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(streak);
+    return () => observer.disconnect();
+  }, [data !== null]);
+
+  useEffect(() => {
+    if (revealDayRequest === 0) return;
+    dayPanelRef.current?.scrollIntoView({ block: "start" });
+    dayPanelRef.current?.focus({ preventScroll: true });
+  }, [revealDayRequest]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -659,18 +675,11 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     selectedUser?.activityTypes
       .map((activityKey) => catalogByKey.get(activityKey))
       .filter((activity): activity is SportActivityCatalogEntry => Boolean(activity)) ?? [];
-  const availableStrengthActivities = STRENGTH_ACTIVITY_KEYS.map((activityKey) =>
-    availableActivities.find((activity) => activity.key === activityKey)
-  ).filter((activity): activity is SportActivityCatalogEntry => Boolean(activity));
-  const availablePrimaryActivities = availableActivities.filter(
-    (activity) => !STRENGTH_ACTIVITY_KEY_SET.has(activity.key)
-  );
-  const selectedStrengthActivity = getStrengthActivity(selectedDateActivities);
-  const defaultStrengthActivity =
-    availableStrengthActivities.find((activity) => activity.key === DEFAULT_STRENGTH_ACTIVITY_KEY) ??
-    availableStrengthActivities[0] ??
-    null;
-  const strengthColor = defaultStrengthActivity?.color ?? "#f59e0b";
+  const activityOptions = availableActivities.map((activity) => ({
+    ...activity,
+    label: STRENGTH_ACTIVITY_KEY_SET.has(activity.key) ? STRENGTH_VARIANT_LABELS[activity.key] : activity.label,
+    Icon: ACTIVITY_ICONS[activity.key] ?? Activity
+  }));
   const selectedStats = selectedUser ? statsByUser.get(selectedUser.id) : null;
   const selectedStatsValue = selectedStats ?? {
     currentStreakDays: 0,
@@ -797,34 +806,22 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   }
 
   function toggleActivity(activityKey: SportActivityKey) {
-    const selected = new Set(selectedDateActivities);
-    if (selected.has(activityKey)) {
-      selected.delete(activityKey);
+    if (savingDate !== null) return;
+    if (selectedDateActivities.includes(activityKey)) {
+      void saveActivities(selectedDateActivities.filter((key) => key !== activityKey));
     } else {
-      selected.add(activityKey);
+      const previous = STRENGTH_ACTIVITY_KEY_SET.has(activityKey)
+        ? withoutStrengthActivities(selectedDateActivities) : selectedDateActivities;
+      void saveActivities([...previous, activityKey]);
     }
-    void saveActivities([...selected]);
-  }
-
-  function toggleStrengthActivity() {
-    if (!defaultStrengthActivity) return;
-
-    if (selectedStrengthActivity) {
-      void saveActivities(withoutStrengthActivities(selectedDateActivities));
-      return;
-    }
-
-    void saveActivities([...withoutStrengthActivities(selectedDateActivities), defaultStrengthActivity.key]);
-  }
-
-  function selectStrengthVariant(activityKey: SportActivityKey) {
-    if (selectedStrengthActivity === activityKey) return;
-    void saveActivities([...withoutStrengthActivities(selectedDateActivities), activityKey]);
   }
 
   function selectCalendarDate(cell: CalendarCell) {
     setSelectedDate(cell.key);
     if (!cell.inMonth) setVisibleMonth(startOfMonth(cell.date));
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      setRevealDayRequest((current) => current + 1);
+    }
   }
 
   if (isLoading && !data) {
@@ -852,7 +849,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   }
 
   return (
-    <div className="sport-page">
+    <div className="sport-page" ref={pageRef}>
       {error ? (
         <section className="error-banner sport-error-banner" role="alert">
           <CircleAlert size={18} />
@@ -867,6 +864,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               key={user.id}
               type="button"
               className={selectedUser?.id === user.id ? "active" : ""}
+              aria-pressed={selectedUser?.id === user.id}
               onClick={() => setSelectedUserId(user.id)}
             >
               <Users size={16} />
@@ -876,18 +874,71 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
         </div>
       </section>
 
-      <section className="sport-layout">
-        <article className="panel sport-calendar-panel">
-          <div className="panel-heading compact sport-calendar-heading">
-            <div>
-              <h2>{selectedUser?.name ?? "Спорт"}</h2>
-              <span>
-                {selectedStats?.monthDays ?? 0} {monthWorkoutLabel(selectedStats?.monthDays ?? 0)} с занятиями ·{" "}
-                {selectedStats?.monthActivities ?? 0}{" "}
-                {pluralRu(selectedStats?.monthActivities ?? 0, ["тренировка", "тренировки", "тренировок"])} ·{" "}
-                {formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)} км бега
-              </span>
+      <article
+        className={[
+          "panel sport-streak-card sport-streak-panel",
+          selectedStatsValue.currentStreakDays > 0 ? "active" : "idle"
+        ].join(" ")}
+        ref={streakRef}
+        aria-label="Стрик выбранного пользователя"
+      >
+        <div className="sport-streak-main">
+          <div className="sport-streak-copy">
+            <span className="sport-streak-eyebrow">Стрик</span>
+            <div className="sport-streak-value">
+              <strong>{selectedStatsValue.currentStreakDays}</strong>
+              <span>{dayStreakLabel(selectedStatsValue.currentStreakDays)} подряд</span>
             </div>
+          </div>
+
+          <div className="sport-streak-stage" aria-hidden="true">
+            <span
+              key={`${selectedUser?.id ?? "sport"}-${selectedStatsValue.currentStreakDays}`}
+              className="sport-streak-flame-pop"
+            >
+              <span className="sport-streak-flame-burn">
+                <img
+                  className="sport-streak-flame-image"
+                  src={selectedStatsValue.currentStreakDays > 0 ? streakFlameActiveUrl : streakFlameIdleUrl}
+                  alt=""
+                />
+                {selectedStatsValue.currentStreakDays > 0 ? (
+                  <img className="sport-streak-flame-glow" src={streakFlameActiveUrl} alt="" />
+                ) : null}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <div className="sport-streak-week" aria-label="Текущая неделя стрика">
+          {selectedStatsValue.weekDayStates.map((day) => (
+            <button
+              type="button"
+              key={day.key}
+              aria-pressed={selectedDate === day.key}
+              onClick={() => selectCalendarDate({ date: parseDateKey(day.key), key: day.key,
+                inMonth: day.key.slice(0, 7) === dateKey(visibleMonth).slice(0, 7) })}
+              className={[
+                "sport-streak-weekday",
+                day.status,
+                day.isToday ? "today" : ""
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              title={`${formatLongDate(parseDateKey(day.key))}: ${streakDayStatusLabel(day.status)}`}
+              aria-label={`${day.label}, ${day.dayNumber}: ${streakDayStatusLabel(day.status)}`}
+            >
+              <small>{day.label}</small>
+              {day.status === "sick" ? <Stethoscope size={16} aria-hidden="true" /> : <b>{day.dayNumber}</b>}
+            </button>
+          ))}
+        </div>
+
+      </article>
+
+      <section className="sport-layout">
+        <article className="panel sport-calendar-panel" ref={calendarRef}>
+          <div className="panel-heading compact sport-calendar-heading">
             <div className="sport-month-nav" aria-label="Месяц">
               <button
                 className="icon-button"
@@ -909,32 +960,6 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                 <ChevronRight size={18} />
               </button>
             </div>
-          </div>
-
-          <div className="sport-legend" aria-label="Типы спорта">
-            <span><Stethoscope size={15} />Больничный</span>
-            {availableStrengthActivities.length > 0 ? (
-              <span className="sport-legend-strength">
-                <span className="sport-legend-swatch-stack" aria-hidden="true">
-                  {availableStrengthActivities.map((activity) => (
-                    <i key={activity.key} style={{ backgroundColor: activity.color }} />
-                  ))}
-                </span>
-                <Dumbbell size={15} />
-                <span>Силовая</span>
-                <small>whole / upper / lower</small>
-              </span>
-            ) : null}
-            {availablePrimaryActivities.map((activity) => {
-              const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
-              return (
-                <span key={activity.key}>
-                  <i style={{ backgroundColor: activity.color }} />
-                  <Icon size={15} />
-                  {activity.label}
-                </span>
-              );
-            })}
           </div>
 
           <div className="sport-weekdays" aria-hidden="true">
@@ -968,6 +993,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   key={cell.key}
                   type="button"
                   onClick={() => selectCalendarDate(cell)}
+                  aria-pressed={isSelected}
                   aria-label={`${formatLongDate(cell.date)}: ${entry?.sick ? "больничный, " : ""}${activityDetails
                     .map((activity) => activity.label)
                     .join(", ") || "без занятий"}${
@@ -975,11 +1001,13 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                   }${entry ? formatMaxRepsAria(entry.maxReps) : ""}`}
                 >
                   <span className="sport-day-number">{cell.date.getDate()}</span>
-                  <span className="sport-day-activity-bars">
+                  <span className="sport-day-marks" aria-hidden="true">
                     {entry?.sick ? <Stethoscope size={17} aria-hidden="true" /> : null}
-                    {activityDetails.map((activity) => (
-                      <i key={activity.key} style={{ backgroundColor: activity.color }} />
-                    ))}
+                    {activityDetails.slice(0, 1).map((activity) => {
+                      const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
+                      return <Icon key={activity.key} size={14} style={{ color: activity.color }} />;
+                    })}
+                    {activityDetails.length > 1 && <small>+{activityDetails.length - 1}</small>}
                   </span>
                 </button>
               );
@@ -987,97 +1015,24 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
           </div>
         </article>
 
-        <aside className="sport-side-column">
-          <article
-            className={[
-              "panel sport-streak-card sport-streak-panel",
-              selectedStatsValue.currentStreakDays > 0 ? "active" : "idle"
-            ].join(" ")}
-            aria-label="Стрик выбранного пользователя"
-          >
-            <div className="sport-streak-main">
-              <div className="sport-streak-copy">
-                <span className="sport-streak-eyebrow">Стрик</span>
-                <div className="sport-streak-value">
-                  <strong>{selectedStatsValue.currentStreakDays}</strong>
-                  <span>{dayStreakLabel(selectedStatsValue.currentStreakDays)} подряд</span>
-                </div>
-              </div>
-
-              <div className="sport-streak-stage" aria-hidden="true">
-                <span
-                  key={`${selectedUser?.id ?? "sport"}-${selectedStatsValue.currentStreakDays}`}
-                  className="sport-streak-flame-pop"
-                >
-                  <span className="sport-streak-flame-burn">
-                    <img
-                      className="sport-streak-flame-image"
-                      src={selectedStatsValue.currentStreakDays > 0 ? streakFlameActiveUrl : streakFlameIdleUrl}
-                      alt=""
-                    />
-                    {selectedStatsValue.currentStreakDays > 0 ? (
-                      <img className="sport-streak-flame-glow" src={streakFlameActiveUrl} alt="" />
-                    ) : null}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            <div className="sport-streak-week" aria-label="Текущая неделя стрика">
-              {selectedStatsValue.weekDayStates.map((day) => (
-                <span
-                  key={day.key}
-                  className={[
-                    "sport-streak-weekday",
-                    day.status,
-                    day.isToday ? "today" : ""
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  title={`${formatLongDate(parseDateKey(day.key))}: ${streakDayStatusLabel(day.status)}`}
-                  aria-label={`${day.label}, ${day.dayNumber}: ${streakDayStatusLabel(day.status)}`}
-                >
-                  <small>{day.label}</small>
-                  {day.status === "sick" ? <Stethoscope size={16} aria-hidden="true" /> : <b>{day.dayNumber}</b>}
-                </span>
-              ))}
-            </div>
-
-            <dl className="sport-streak-facts">
-              <div>
-                <dt>
-                  <Trophy size={15} />
-                  Лучший
-                </dt>
-                <dd>{selectedStatsValue.bestStreakDays}</dd>
-              </div>
-              <div>
-                <dt>
-                  <CircleOff size={15} />
-                  Отдых
-                </dt>
-                <dd>{selectedStatsValue.weekRestDaysRemaining}/{selectedStatsValue.weekRestDaysAllowance}</dd>
-              </div>
-            </dl>
-          </article>
-
-        <article className="panel sport-day-panel">
+        <article className="panel sport-day-panel" ref={dayPanelRef} tabIndex={-1} aria-label="Выбранный день">
+          <button className="sport-back-to-calendar disclosure-button" type="button" onClick={() => {
+            calendarRef.current?.scrollIntoView({ block: "start" });
+            calendarRef.current?.querySelector<HTMLButtonElement>(".sport-day-button.selected")?.focus({ preventScroll: true });
+          }}>К календарю</button>
           <div className="panel-heading compact">
             <div>
-              <h2>Выбранный день</h2>
-              <span>
-                {selectedUser?.name ?? "Пользователь"} · {formatLongDate(selectedDateObject)}
-              </span>
+              <h2>{formatLongDate(selectedDateObject)}</h2>
+
             </div>
-            {savingDate === selectedDate ? <RefreshCw className="spin" size={22} /> : <Check size={22} />}
+            {savingDate === selectedDate && <RefreshCw className="spin" size={20} aria-label="Сохранение" />}
           </div>
 
           <div className="sport-sick-control">
             <button
-              className={`sport-activity-action sport-sick-toggle${selectedDateSick ? " active" : ""}`}
+              className={`sport-sick-button${selectedDateSick ? " active" : ""}`}
               type="button"
               aria-pressed={selectedDateSick}
-              aria-describedby="sport-sick-description"
               disabled={savingDate !== null}
               onClick={() => void saveSportDay(selectedDateActivities, selectedDateRunDistanceKm, selectedDateMaxReps, !selectedDateSick)}
             >
@@ -1085,90 +1040,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               <span>Больничный</span>
               {selectedDateSick ? <Check size={17} /> : null}
             </button>
-            <p id="sport-sick-description">День пропускается: стрик сохраняется, дни отдыха не расходуются.</p>
-            {selectedDateSick && selectedDateActivities.length > 0 ? (
-              <p>Записанные занятия сохранятся и снова учтутся после снятия больничного.</p>
-            ) : null}
           </div>
 
-          <div className="sport-activity-actions">
-            {defaultStrengthActivity ? (
-              <div
-                className={[
-                  "sport-strength-group",
-                  selectedStrengthActivity ? "active" : ""
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                style={{ "--activity-color": strengthColor } as CSSProperties}
-              >
-                <button
-                  className={selectedStrengthActivity ? "sport-strength-toggle active" : "sport-strength-toggle"}
-                  type="button"
-                  onClick={toggleStrengthActivity}
-                  disabled={savingDate !== null}
-                  aria-pressed={Boolean(selectedStrengthActivity)}
-                  aria-label={`Силовая: ${
-                    selectedStrengthActivity
-                      ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
-                      : "Whole body по умолчанию"
-                  }`}
-                >
-                  <Dumbbell size={18} />
-                  <span className="sport-strength-label">
-                    <strong>Силовая</strong>
-                    <small>
-                      {selectedStrengthActivity
-                        ? STRENGTH_VARIANT_LABELS[selectedStrengthActivity]
-                        : "Whole body по умолчанию"}
-                    </small>
-                  </span>
-                  {selectedStrengthActivity ? <Check size={17} /> : null}
-                </button>
-
-                {selectedStrengthActivity ? (
-                  <div className="sport-strength-variants" aria-label="Уточнение силовой тренировки">
-                    {availableStrengthActivities.map((activity) => {
-                      const checked = selectedStrengthActivity === activity.key;
-                      return (
-                        <button
-                          className={checked ? "active" : ""}
-                          key={activity.key}
-                          type="button"
-                          onClick={() => selectStrengthVariant(activity.key)}
-                          disabled={savingDate !== null}
-                          aria-pressed={checked}
-                          style={{ "--activity-color": activity.color } as CSSProperties}
-                        >
-                          {STRENGTH_VARIANT_LABELS[activity.key]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {availablePrimaryActivities.map((activity) => {
-              const Icon = ACTIVITY_ICONS[activity.key] ?? Activity;
-              const checked = selectedDateActivities.includes(activity.key);
-              return (
-                <button
-                  className={checked ? "sport-activity-action active" : "sport-activity-action"}
-                  key={activity.key}
-                  type="button"
-                  onClick={() => toggleActivity(activity.key)}
-                  disabled={savingDate !== null}
-                  aria-pressed={checked}
-                  style={{ "--activity-color": activity.color } as CSSProperties}
-                >
-                  <Icon size={18} />
-                  <span>{activity.label}</span>
-                  {checked ? <Check size={17} /> : null}
-                </button>
-              );
-            })}
-          </div>
+          <ActivityPicker key={`${selectedUserId}-${selectedDate}`} options={activityOptions}
+            selected={selectedDateActivities} disabled={savingDate !== null} onToggle={toggleActivity} />
 
           {selectedDateHasRun ? (
             <form className="sport-run-distance-form" onSubmit={saveRunDistance}>
@@ -1266,23 +1141,6 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </div>
           ) : null}
 
-          <div className="sport-day-summary">
-            <div>
-              <strong>{selectedDateActivities.length}</strong>
-              <span>
-                {pluralRu(selectedDateActivities.length, ["активность", "активности", "активностей"])}
-              </span>
-            </div>
-            <div>
-              <strong>{selectedStats?.currentStreakDays ?? 0}</strong>
-              <span>дневный стрик</span>
-            </div>
-            <div>
-              <strong>{formatDistanceKm(selectedStats?.monthRunDistanceKm ?? 0)}</strong>
-              <span>км бега за месяц</span>
-            </div>
-          </div>
-
           {selectedDateActivities.length > 0 || selectedDateSick ? (
             <button
               className="sport-clear-button"
@@ -1293,23 +1151,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               <CircleOff size={17} />
               <span>Снять отметки</span>
             </button>
-          ) : (
-            <div className="sport-empty-day">
-              <CircleAlert size={18} />
-              <span>Пустой день</span>
-            </div>
-          )}
-
-          <div className="sport-last-workout">
-            <span>Последняя тренировка</span>
-            <strong>
-              {selectedStats?.lastWorkoutDate
-                ? formatLongDate(parseDateKey(selectedStats.lastWorkoutDate))
-                : "—"}
-            </strong>
-          </div>
+          ) : null}
         </article>
-        </aside>
       </section>
     </div>
   );

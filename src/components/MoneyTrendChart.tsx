@@ -1,8 +1,14 @@
-import { useMemo, useRef, useState } from "react";
+import { useChartSize } from "./useChartSize";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDateShort, formatNumber } from "../stats";
 import type { MoneyRecord } from "../types";
 
-type MoneySeriesKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
+type MoneySeriesKey =
+  | "totalAmount"
+  | "freeAmount"
+  | "investmentAmount"
+  | "reserveAmount"
+  | "creditCardDebt";
 
 type MoneySeries = {
   key: MoneySeriesKey;
@@ -22,8 +28,6 @@ type MoneyTrendChartProps = {
   onRecordSelect?: (record: MoneyRecord) => void;
 };
 
-const WIDTH = 920;
-const HEIGHT = 420;
 const MARGIN = { top: 18, right: 22, bottom: 42, left: 72 };
 
 const MONEY_SERIES: MoneySeries[] = [
@@ -31,13 +35,16 @@ const MONEY_SERIES: MoneySeries[] = [
   { key: "freeAmount", label: "Свободная", color: "#15803d" },
   { key: "investmentAmount", label: "Инвестиции", color: "#0f766e" },
   { key: "reserveAmount", label: "Несгораемая", color: "#f59e0b" },
-  { key: "creditCardDebt", label: "Долг", color: "#dc2626", dash: "6 5" }
+  { key: "creditCardDebt", label: "Долг", color: "#dc2626", dash: "6 5" },
 ];
 
 function pathFromPoints(points: { x: number; y: number }[]) {
   if (points.length === 0) return "";
   return points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`)
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"}${point.x.toFixed(2)},${point.y.toFixed(2)}`,
+    )
     .join(" ");
 }
 
@@ -52,13 +59,24 @@ function moneyValue(record: MoneyRecord, key: MoneySeriesKey) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSelect }: MoneyTrendChartProps) {
+export function MoneyTrendChart({
+  records,
+  selectedRecordId = null,
+  onRecordSelect,
+}: MoneyTrendChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const {
+    containerRef,
+    width: WIDTH,
+    height: HEIGHT,
+    compact,
+  } = useChartSize();
   const [hover, setHover] = useState<HoverState | null>(null);
+  useEffect(() => setHover(null), [records, WIDTH, HEIGHT]);
 
   const chart = useMemo(() => {
     const drawableRecords = records.filter((record) =>
-      MONEY_SERIES.some((series) => moneyValue(record, series.key) !== null)
+      MONEY_SERIES.some((series) => moneyValue(record, series.key) !== null),
     );
     if (drawableRecords.length === 0) return null;
 
@@ -70,8 +88,8 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
     const timePadding = minTime === maxTime ? 86400000 : 0;
     const values = drawableRecords.flatMap((record) =>
       MONEY_SERIES.map((series) => moneyValue(record, series.key)).filter(
-        (value): value is number => value !== null
-      )
+        (value): value is number => value !== null,
+      ),
     );
     const minValue = Math.min(0, ...values);
     const maxValue = Math.max(...values);
@@ -80,7 +98,8 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
     const yMax = maxValue + yPadding;
     const xScale = (time: number) =>
       MARGIN.left +
-      ((time - (minTime - timePadding)) / (maxTime + timePadding - (minTime - timePadding))) *
+      ((time - (minTime - timePadding)) /
+        (maxTime + timePadding - (minTime - timePadding))) *
         plotWidth;
     const yScale = (value: number) =>
       MARGIN.top + (1 - (value - yMin) / (yMax - yMin)) * plotHeight;
@@ -93,8 +112,8 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
             if (value === null) return null;
             return { x: xScale(Date.parse(record.dateIso)), y: yScale(value) };
           })
-          .filter((point): point is { x: number; y: number } => point !== null)
-      )
+          .filter((point): point is { x: number; y: number } => point !== null),
+      ),
     }));
 
     return {
@@ -104,10 +123,14 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
       xScale,
       yScale,
       yTicks: ticks(yMin, yMax, 5),
-      xTicks: ticks(minTime, maxTime, Math.min(5, Math.max(2, drawableRecords.length))),
-      paths
+      xTicks: ticks(
+        minTime,
+        maxTime,
+        Math.min(compact ? 3 : 5, drawableRecords.length),
+      ),
+      paths,
     };
-  }, [records]);
+  }, [records, WIDTH, HEIGHT, compact]);
 
   if (!chart) {
     return (
@@ -117,7 +140,7 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
     );
   }
 
-  function handleMove(event: React.MouseEvent<SVGSVGElement>) {
+  function handleMove(event: React.PointerEvent<SVGSVGElement>) {
     if (!svgRef.current || !chart) return;
     const rect = svgRef.current.getBoundingClientRect();
     const ratioX = WIDTH / rect.width;
@@ -128,30 +151,36 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
         const distance = Math.abs(pointX - x);
         return distance < best.distance ? { record, distance } : best;
       },
-      { record: chart.drawableRecords[0], distance: Number.POSITIVE_INFINITY }
+      { record: chart.drawableRecords[0], distance: Number.POSITIVE_INFINITY },
     ).record;
 
     setHover({
       record: nearest,
-      x: chart.xScale(Date.parse(nearest.dateIso))
+      x: chart.xScale(Date.parse(nearest.dateIso)),
     });
   }
 
   const selectedRecord = selectedRecordId
-    ? chart.drawableRecords.find((record) => record.rowId === selectedRecordId) ?? null
+    ? (chart.drawableRecords.find(
+        (record) => record.rowId === selectedRecordId,
+      ) ?? null)
     : null;
-  const selectedX = selectedRecord ? chart.xScale(Date.parse(selectedRecord.dateIso)) : null;
+  const selectedX = selectedRecord
+    ? chart.xScale(Date.parse(selectedRecord.dateIso))
+    : null;
 
   return (
-    <div className="chart-shell money-chart-shell">
+    <div className="chart-shell money-chart-shell" ref={containerRef}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="money-trend-chart"
         role="img"
         aria-label={`Деньги: ${chart.drawableRecords.length} срезов`}
-        onMouseMove={handleMove}
-        onMouseLeave={() => setHover(null)}
+        onPointerMove={handleMove}
+        onPointerDown={handleMove}
+        onPointerLeave={(event) => { if (event.pointerType === "mouse") setHover(null); }}
+        onPointerCancel={() => setHover(null)}
       >
         <rect
           x={MARGIN.left}
@@ -172,8 +201,18 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
               stroke="#dbe6f3"
               strokeDasharray="4 5"
             />
-            <text x={MARGIN.left - 10} y={chart.yScale(tick) + 4} textAnchor="end" className="axis-label">
-              {formatNumber(tick, 0)}
+            <text
+              x={MARGIN.left - 10}
+              y={chart.yScale(tick) + 4}
+              textAnchor="end"
+              className="axis-label"
+            >
+              {compact
+                ? new Intl.NumberFormat("ru-RU", {
+                    notation: "compact",
+                    maximumFractionDigits: 1,
+                  }).format(tick)
+                : formatNumber(tick, 0)}
             </text>
           </g>
         ))}
@@ -183,7 +222,9 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
             key={`money-x-${tick}`}
             x={chart.xScale(tick)}
             y={HEIGHT - 14}
-            textAnchor="middle"
+            textAnchor={
+              tick === chart.xTicks[chart.xTicks.length - 1] ? "end" : "middle"
+            }
             className="axis-label"
           >
             {formatDateShort(new Date(tick).toISOString())}
@@ -242,7 +283,7 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
                 }}
               />
             );
-          })
+          }),
         )}
 
         {hover && (
@@ -261,8 +302,8 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
         <div
           className="chart-tooltip money-tooltip"
           style={{
-            left: `${Math.min(78, Math.max(14, (hover.x / WIDTH) * 100))}%`,
-            top: "20%"
+            left: `${Math.min(100 - (105 / WIDTH) * 100, Math.max((105 / WIDTH) * 100, (hover.x / WIDTH) * 100))}%`,
+            top: "12px",
           }}
         >
           <strong>{formatDateShort(hover.record.dateIso)}</strong>

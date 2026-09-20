@@ -143,6 +143,10 @@ If UI/UX work is requested, use the local `ui-ux-pro-max` skill first:
 python3 .codex/skills/ui-ux-pro-max/scripts/search.py "personal life dashboard health money relationships sport elegant professional data visualization" --design-system -p "Life Dashboard"
 ```
 
+Then load `.agents/skills/orchestrate-life-ui/SKILL.md`, the ED1 design pipeline
+adapted for this dashboard. `docs/design.md` and existing CSS/components govern
+visual decisions. Verify pinned playbooks with `npm run design-skills:check`.
+
 ## Server Deployment
 
 Deployment hosts should configure environment variables instead of tracked source changes:

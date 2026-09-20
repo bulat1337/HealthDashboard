@@ -1,5 +1,8 @@
 import {
   Activity,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Dumbbell,
   Flame,
@@ -32,6 +35,9 @@ import type { DashboardData, MetricCatalogEntry, NormalizedMeasurement } from ".
 
 const DOMAINS = ["health", "money", "relationships", "sport"] as const;
 type Domain = (typeof DOMAINS)[number];
+const DOMAIN_LABELS: Record<Domain, string> = {
+  health: "Здоровье", money: "Деньги", relationships: "Отношения", sport: "Спорт"
+};
 
 const ACTIVE_DOMAIN_STORAGE_KEY = "life-dashboard-active-domain";
 const SELECTED_USER_STORAGE_KEY = "life-dashboard-selected-user";
@@ -98,9 +104,9 @@ function getInitialSelectedUser() {
 }
 
 function statusText(connected: boolean, lastEventAt: string | null) {
-  if (connected && lastEventAt) return `Live, ${formatDateTime(lastEventAt)}`;
-  if (connected) return "Live";
-  return "Offline";
+  if (connected && lastEventAt) return `На связи · ${formatDateTime(lastEventAt)}`;
+  if (connected) return "На связи";
+  return "Нет связи";
 }
 
 function isAbortError(error: unknown) {
@@ -122,6 +128,8 @@ function displayMetricLabel(metric: MetricCatalogEntry | null | undefined) {
 
 function displayMetricUnit(metric: MetricCatalogEntry | null | undefined) {
   if (!metric) return "";
+  if (metric.unit === "kg") return "кг";
+  if (metric.unit === "bpm") return "уд/мин";
   if (metric.key.startsWith("bioimpedance_resistance")) return "Ω";
   if (!metric.unit) return "";
   if (metric.key === "body_score" && metric.unit === "points") return "баллов";
@@ -218,6 +226,14 @@ function latestMeasurementForUser(measurements: NormalizedMeasurement[], user: s
   }, null);
 }
 
+function measurementLabel(measurement: NormalizedMeasurement) {
+  const date = new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  }).format(new Date(measurement.measuredAt));
+  return measurement.sameMinuteCount > 1
+    ? `${date} · ${measurement.sameMinuteIndex}/${measurement.sameMinuteCount}` : date;
+}
+
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [selectedUser, setSelectedUser] = useState<string>(() => getInitialSelectedUser());
@@ -230,6 +246,11 @@ function App() {
   const [today, setToday] = useState(() => new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sportRefreshKey, setSportRefreshKey] = useState(0);
+  const [showAllMetrics, setShowAllMetrics] = useState(false);
+  const [selectedMeasurementId, setSelectedMeasurementId] = useState<number | null>(null);
+  const measurementPanelRef = useRef<HTMLElement>(null);
+
+  useEffect(() => setSelectedMeasurementId(null), [selectedUser]);
 
   const loadSequence = useRef(0);
 
@@ -253,9 +274,9 @@ function App() {
 
   async function refresh() {
     setIsRefreshing(true);
-    setError(null);
+    if (data) setError(null);
     try {
-      if (activeDomain === "money") {
+      if (data && activeDomain === "money") {
         await refreshMoneyData();
       }
       if (activeDomain === "sport") {
@@ -383,21 +404,29 @@ function App() {
     return latestMeasurementForUser(data.measurements, selectedUser);
   }, [data, selectedUser]);
 
+  const userMeasurements = useMemo(() => data?.measurements
+    .filter((measurement) => measurement.user === selectedUser)
+    .sort((a, b) => a.measuredAtUnixSeconds - b.measuredAtUnixSeconds || a.rowId - b.rowId) ?? [],
+  [data, selectedUser]);
+  const selectedMeasurement = userMeasurements.find((measurement) => measurement.rowId === selectedMeasurementId)
+    ?? latestMeasurement;
+  const measurementIndex = userMeasurements.findIndex((measurement) => measurement.rowId === selectedMeasurement?.rowId);
+
   const latestMetricRows = useMemo(() => {
-    if (!data || !latestMeasurement) return [];
+    if (!data || !selectedMeasurement) return [];
     return data.metrics
-      .filter((metric) => Number.isFinite(latestMeasurement.metrics[metric.key]))
+      .filter((metric) => Number.isFinite(selectedMeasurement.metrics[metric.key]))
       .map((metric) => ({
         metric,
-        value: latestMeasurement.metrics[metric.key]
+        value: selectedMeasurement.metrics[metric.key]
       }));
-  }, [data, latestMeasurement]);
+  }, [data, selectedMeasurement]);
 
   if (isLoading) {
     return (
       <main className="app loading-screen">
         <RefreshCw className="spin" size={28} />
-        <span>Загрузка данных</span>
+        <span role="status">Загрузка данных</span>
       </main>
     );
   }
@@ -408,6 +437,10 @@ function App() {
         <CircleAlert size={32} />
         <h1>Не удалось прочитать данные</h1>
         <p>{error}</p>
+        <button type="button" className="retry-button" onClick={() => refresh()} disabled={isRefreshing}>
+          <RefreshCw size={18} className={isRefreshing ? "spin" : undefined} />
+          {isRefreshing ? "Загрузка…" : "Попробовать снова"}
+        </button>
       </main>
     );
   }
@@ -416,6 +449,19 @@ function App() {
 
   const latestValue = latestMetricValue(metricRecords, selectedMetric);
   const totalChange = changeBetweenEdges(metricRecords, selectedMetric);
+
+  function navigate(domain: Domain) {
+    setActiveDomain(domain);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+  function selectMeasurement(rowId: number, reveal = false) {
+    setSelectedMeasurementId(rowId);
+    if (reveal && window.matchMedia("(max-width: 959px)").matches) {
+      measurementPanelRef.current?.scrollIntoView({ block: "start" });
+      measurementPanelRef.current?.focus({ preventScroll: true });
+    }
+  }
 
   return (
     <main className="app">
@@ -430,8 +476,10 @@ function App() {
         </div>
 
         <div className="status-strip">
-          <div className={socketConnected ? "live-dot online" : "live-dot"} />
-          <span>{statusText(socketConnected, lastEventAt)}</span>
+          <div className={socketConnected ? "live-dot online" : "live-dot"} aria-hidden="true" />
+          <span className="connection-status" role="status" title={statusText(socketConnected, lastEventAt)}>
+            {socketConnected ? "На связи" : "Нет связи"}
+          </span>
           <button
             className="icon-button"
             type="button"
@@ -452,12 +500,13 @@ function App() {
         </section>
       ) : null}
 
-      <section className="domain-band">
-        <div className="segmented domain-control" aria-label="Раздел">
+      <nav className="domain-band" aria-label="Разделы дашборда">
+        <div className="segmented domain-control">
           <button
             type="button"
             className={activeDomain === "health" ? "active" : ""}
-            onClick={() => setActiveDomain("health")}
+            aria-current={activeDomain === "health" ? "page" : undefined}
+            onClick={() => navigate("health")}
           >
             <HeartPulse size={16} />
             <span>Здоровье</span>
@@ -465,7 +514,8 @@ function App() {
           <button
             type="button"
             className={activeDomain === "money" ? "active" : ""}
-            onClick={() => setActiveDomain("money")}
+            aria-current={activeDomain === "money" ? "page" : undefined}
+            onClick={() => navigate("money")}
           >
             <Wallet size={16} />
             <span>Деньги</span>
@@ -473,7 +523,8 @@ function App() {
           <button
             type="button"
             className={activeDomain === "relationships" ? "active" : ""}
-            onClick={() => setActiveDomain("relationships")}
+            aria-current={activeDomain === "relationships" ? "page" : undefined}
+            onClick={() => navigate("relationships")}
           >
             <HeartHandshake size={16} />
             <span>Отношения</span>
@@ -481,13 +532,19 @@ function App() {
           <button
             type="button"
             className={activeDomain === "sport" ? "active" : ""}
-            onClick={() => setActiveDomain("sport")}
+            aria-current={activeDomain === "sport" ? "page" : undefined}
+            onClick={() => navigate("sport")}
           >
             <Dumbbell size={16} />
             <span>Спорт</span>
           </button>
         </div>
-      </section>
+      </nav>
+
+      <div className="page-heading">
+        <h2>{DOMAIN_LABELS[activeDomain]}</h2>
+        <span>{new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(today)}</span>
+      </div>
 
       {activeDomain === "money" ? (
         <MoneyDashboard money={data.money} onMoneyDataUpdated={() => load()} />
@@ -504,6 +561,7 @@ function App() {
               key={user.name}
               type="button"
               className={user.name === selectedUser ? "active" : ""}
+              aria-pressed={user.name === selectedUser}
               onClick={() => setSelectedUser(user.name)}
             >
               <Users size={16} />
@@ -514,7 +572,7 @@ function App() {
 
         <label className="select-control">
           <SlidersHorizontal size={17} />
-          <select value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value)}>
+          <select aria-label="Показатель на графике" value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value)}>
             {data.metrics.map((metric) => (
               <option key={metric.key} value={metric.key}>
                 {displayMetricLabel(metric)}
@@ -537,13 +595,14 @@ function App() {
               className={`metric-tile ${isActive ? "active" : ""}`}
               key={metric.key}
               type="button"
+              aria-pressed={isActive}
               onClick={() => setSelectedMetric(metric.key)}
             >
               <Icon size={20} />
               <span className="tile-label">{displayMetricLabel(metric)}</span>
               <strong>
                 {formatNumber(value, 1)}
-                {unit ? ` ${unit}` : ""}
+                {unit ? <span className="metric-unit"> {unit}</span> : null}
               </strong>
               <small>{formatMetricChange(records, metric.key)}</small>
             </button>
@@ -562,12 +621,14 @@ function App() {
               </span>
             </div>
             <div className="headline-value">
-              <strong>{selectedMetricInfo ? displayMetricValue(selectedMetricInfo, latestValue) : "—"}</strong>
-              <span>{formatSigned(totalChange, 2)} за период</span>
+              <strong>{displayMetricValue(selectedMetricInfo, selectedMeasurementId === null ? latestValue : selectedMeasurement?.metrics[selectedMetric])}</strong>
+              <span>{selectedMeasurementId === null ? `${formatSigned(totalChange, 2)} за период` : formatDateTime(selectedMeasurement?.measuredAt)}</span>
             </div>
           </div>
 
-          <HealthChart points={chartPoints} metric={selectedMetricInfo} stats={selectedStats} />
+          <HealthChart points={chartPoints} metric={{ ...selectedMetricInfo, unit: displayMetricUnit(selectedMetricInfo) }} stats={selectedStats}
+            selectedRecordId={selectedMeasurement?.rowId ?? null}
+            onPointSelect={(point, reveal) => selectMeasurement(point.rowId, reveal)} />
 
           <div className="legend-row">
             <span>
@@ -585,12 +646,12 @@ function App() {
           </div>
         </article>
 
-        <aside className="panel latest-measurement-panel">
+        <aside className="panel latest-measurement-panel" ref={measurementPanelRef} tabIndex={-1} aria-label="Данные выбранного измерения">
           <div className="panel-heading compact">
             <div>
-              <h2>Последнее измерение</h2>
+              <h2>{selectedMeasurement?.rowId === latestMeasurement?.rowId ? "Последнее измерение" : "Выбранное измерение"}</h2>
               <span>
-                {selectedUser} · {formatDateTime(latestMeasurement?.measuredAt)}
+                {selectedUser}
               </span>
             </div>
             <div className="latest-count-badge" aria-label="Количество показателей">
@@ -599,9 +660,27 @@ function App() {
             </div>
           </div>
 
+          {selectedMeasurement && (
+            <div className="measurement-navigation">
+              <button type="button" className="icon-button" aria-label="Предыдущее измерение" disabled={measurementIndex <= 0}
+                onClick={() => selectMeasurement(userMeasurements[measurementIndex - 1].rowId)}><ChevronLeft size={18} /></button>
+              <select aria-label="Дата и время измерения" value={selectedMeasurement.rowId}
+                onChange={(event) => selectMeasurement(Number(event.target.value))}>
+                {[...userMeasurements].reverse().map((measurement) => (
+                  <option key={measurement.rowId} value={measurement.rowId}>{measurementLabel(measurement)}</option>
+                ))}
+              </select>
+              <button type="button" className="icon-button" aria-label="Следующее измерение" disabled={measurementIndex >= userMeasurements.length - 1}
+                onClick={() => selectMeasurement(userMeasurements[measurementIndex + 1].rowId)}><ChevronRight size={18} /></button>
+            </div>
+          )}
+          {selectedMeasurement?.rowId !== latestMeasurement?.rowId && (
+            <button type="button" className="disclosure-button measurement-latest" onClick={() => setSelectedMeasurementId(null)}>К последнему измерению</button>
+          )}
+
           {latestMetricRows.length > 0 ? (
-            <dl className="latest-metrics-list">
-              {latestMetricRows.map(({ metric, value }) => (
+            <dl className="latest-metrics-list" id="latest-metrics">
+              {(showAllMetrics ? latestMetricRows : latestMetricRows.slice(0, 6)).map(({ metric, value }) => (
                 <div key={metric.key}>
                   <dt>{displayMetricLabel(metric)}</dt>
                   <dd>{displayMetricValue(metric, value)}</dd>
@@ -609,7 +688,14 @@ function App() {
               ))}
             </dl>
           ) : (
-            <div className="empty-latest-measurement">Нет показателей в последнем измерении.</div>
+            <div className="empty-latest-measurement">Нет показателей в выбранном измерении.</div>
+          )}
+          {latestMetricRows.length > 6 && (
+            <button type="button" className="disclosure-button" aria-expanded={showAllMetrics}
+              aria-controls="latest-metrics" onClick={() => setShowAllMetrics((current) => !current)}>
+              {showAllMetrics ? "Свернуть показатели" : `Все показатели · ${latestMetricRows.length}`}
+              <ChevronDown size={18} className={showAllMetrics ? "rotated" : undefined} />
+            </button>
           )}
         </aside>
       </section>

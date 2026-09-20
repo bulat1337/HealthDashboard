@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "id": "taste-skill",
+      "source": "https://github.com/Leonxlnx/taste-skill",
+      "commit": "e988add20dab0fa97d7a76781c48961c8184288e",
+      "path": "skills/taste-skill",
+      "directory": ".agents/vendor/ui-skills/taste-skill",
+      "license": ".agents/vendor/ui-skills/licenses/taste-skill.LICENSE",
+      "licenseSha256": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df",
+      "skillName": "design-taste-frontend",
+      "treeSha256": "32134157d57314d41e794e71014c853b24f16f20e396944e47ccc76f96fa01b0"
+    },
+    {
+      "id": "impeccable",
+      "source": "https://github.com/pbakaus/impeccable",
+      "commit": "c5e1ddd054dc093ef2546c36b82eddf2c4e84bb9",
+      "path": ".agents/skills/impeccable",
+      "directory": ".agents/vendor/ui-skills/impeccable",
+      "license": ".agents/vendor/ui-skills/licenses/impeccable.LICENSE",
+      "licenseSha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+      "skillName": "impeccable",
+      "treeSha256": "a123e911413566ea070c9060bf52c172e2ab2b212434dd2682ff042f7f457bc9"
+    },
+    {
+      "id": "emil-design-eng",
+      "source": "https://github.com/emilkowalski/skills",
+      "commit": "70744e3816f1d93eafb697161a8b880a7384c5ff",
+      "path": "skills/emil-design-eng",
+      "directory": ".agents/vendor/ui-skills/emil-design-eng",
+      "license": ".agents/vendor/ui-skills/licenses/emilkowalski-skills.LICENSE",
+      "licenseSha256": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
+      "skillName": "emil-design-eng",
+      "treeSha256": "3e4c7e2b34a2fef2f972c1836d3d7925e39875623a76ee1b7a2026a5b32c1454"
+    },
+    {
+      "id": "find-animation-opportunities",
+      "source": "https://github.com/emilkowalski/skills",
+      "commit": "70744e3816f1d93eafb697161a8b880a7384c5ff",
+      "path": "skills/find-animation-opportunities",
+      "directory": ".agents/vendor/ui-skills/find-animation-opportunities",
+      "license": ".agents/vendor/ui-skills/licenses/emilkowalski-skills.LICENSE",
+      "licenseSha256": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
+      "skillName": "find-animation-opportunities",
+      "treeSha256": "83a8d4767cad74886eca6f621793a777ae8079018482e25aea1be9254650a961"
+    },
+    {
+      "id": "improve-animations",
+      "source": "https://github.com/emilkowalski/skills",
+      "commit": "70744e3816f1d93eafb697161a8b880a7384c5ff",
+      "path": "skills/improve-animations",
+      "directory": ".agents/vendor/ui-skills/improve-animations",
+      "license": ".agents/vendor/ui-skills/licenses/emilkowalski-skills.LICENSE",
+      "licenseSha256": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
+      "skillName": "improve-animations",
+      "treeSha256": "2a371396644801d45c708e95cbff02cf1b0f2dca238abbdbb0abb09d5a42974e"
+    },
+    {
+      "id": "review-animations",
+      "source": "https://github.com/emilkowalski/skills",
+      "commit": "70744e3816f1d93eafb697161a8b880a7384c5ff",
+      "path": "skills/review-animations",
+      "directory": ".agents/vendor/ui-skills/review-animations",
+      "license": ".agents/vendor/ui-skills/licenses/emilkowalski-skills.LICENSE",
+      "licenseSha256": "4ff5bdb7887ec1435c9cab0e8d1a7caee704d894d65c2a008ccc68b1cc2f260b",
+      "skillName": "review-animations",
+      "treeSha256": "abe6b4b12653e48de5669c73b46b007855e872458d0ae232e24753c2eca909f2"
+    }
+  ]
+}

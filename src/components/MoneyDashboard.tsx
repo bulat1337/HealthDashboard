@@ -12,7 +12,6 @@ import {
   Pencil,
   PiggyBank,
   Save,
-  Smartphone,
   Wallet,
   X
 } from "lucide-react";
@@ -120,14 +119,6 @@ function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): Compos
   }
 
   return segments.filter((segment) => segment.value > 0);
-}
-
-function syncStatusLabel(status: MoneyData["sync"]["status"]) {
-  if (status === "running") return "идет обновление";
-  if (status === "ok") return "обновлено";
-  if (status === "error") return "ошибка";
-  if (status === "disabled") return "выключено";
-  return "ожидание";
 }
 
 function inputValue(value: number | null | undefined) {
@@ -396,7 +387,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
   const visibleRows = showAllRecords ? [...money.records].reverse() : money.records.slice(-6).reverse();
   const compositionSegments = buildCompositionSegments(money, activeRecord);
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
-  const preSync = money.sync.preSync;
   const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
 
   return (
@@ -415,20 +405,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
             </article>
           );
         })}
-      </section>
-
-      <section className={`money-sync-strip ${preSync.configured ? "ready" : "needs-setup"}`}>
-        {preSync.configured ? <Smartphone size={20} /> : <CircleAlert size={20} />}
-        <div>
-          <strong>
-            {preSync.configured ? "Мобильный запуск ZenMoney подключен" : "Мобильный запуск ZenMoney отсутствует"}
-          </strong>
-          <span>
-            {preSync.configured
-              ? `${syncStatusLabel(money.sync.status)} · ожидание ${Math.round(preSync.waitMs / 1000)} сек`
-              : "ZENMONEY_PRE_SYNC_URL или ZENMONEY_PRE_SYNC_COMMAND ждёт настройки на VaioServer"}
-          </span>
-        </div>
       </section>
 
       <section className="main-grid money-grid">
@@ -633,20 +609,20 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
           </div>
 
           <div className="money-table-wrap">
-            <table className="money-table">
-              <thead>
-                <tr>
-                  <th>Действия</th>
-                  <th>Дата</th>
-                  <th>Общая</th>
-                  <th>Свободная</th>
-                  <th>Инвестиции</th>
-                  <th>Резерв</th>
-                  <th>Кредитки</th>
-                  <th>Аренда</th>
+            <table className="money-table" role="table" aria-label="История денежных срезов">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th scope="col" role="columnheader">Действия</th>
+                  <th scope="col" role="columnheader">Дата</th>
+                  <th scope="col" role="columnheader">Общая</th>
+                  <th scope="col" role="columnheader">Свободная</th>
+                  <th scope="col" role="columnheader">Инвестиции</th>
+                  <th scope="col" role="columnheader">Резерв</th>
+                  <th scope="col" role="columnheader">Кредитки</th>
+                  <th scope="col" role="columnheader">Аренда</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup">
                 {visibleRows.map((record) => {
                   const isSelected = record.rowId === activeRecord.rowId;
                   const isEditing = record.rowId === editingRecordId;
@@ -656,6 +632,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                     .join(" ");
                   return (
                     <tr
+                      role="row"
                       key={record.rowId}
                       ref={isSelected ? selectedRecordRef : null}
                       className={rowClassName || undefined}
@@ -663,7 +640,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                         if (!isEditing) selectMoneyRecord(record);
                       }}
                     >
-                      <td>
+                      <td role="cell" data-label="Действия">
                         <div className="money-table-actions">
                           {isEditing ? (
                             <>
@@ -713,7 +690,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           )}
                         </div>
                       </td>
-                      <td>
+                      <td role="cell" data-label="Дата">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -737,7 +714,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           </button>
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Общая">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -754,7 +731,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.totalAmount)
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Свободная">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -771,7 +748,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.freeAmount)
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Инвестиции">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -788,7 +765,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.investmentAmount)
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Резерв">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -805,7 +782,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.reserveAmount)
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Кредитки">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -822,7 +799,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.creditCardDebt)
                         )}
                       </td>
-                      <td>
+                      <td role="cell" data-label="Аренда">
                         {isEditing ? (
                           <span className="money-table-input-shell money-table-select-shell">
                             <select

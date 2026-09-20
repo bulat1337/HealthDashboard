@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "design-skills:check": "node .agents/skills/orchestrate-life-ui/scripts/verify-stack.mjs",
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",

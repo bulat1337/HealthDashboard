@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
-  CalendarHeart,
   Camera,
   Heart,
   HeartHandshake,
@@ -145,11 +144,6 @@ export function RelationshipDashboard({ today }: RelationshipDashboardProps) {
         </article>
 
         <article className="panel relationship-story-panel">
-          <div className="section-kicker relationship-kicker">
-            <CalendarHeart size={18} />
-            <span>Отношения</span>
-          </div>
-
           <div className="relationship-title-block">
             <h2>{RELATIONSHIP_TITLE}</h2>
             <p>Вместе с {formatLongDate(RELATIONSHIP_START)}</p>
