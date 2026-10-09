@@ -9,7 +9,7 @@ test('401 is retried at most once',async t=>{
   assert.ok(calls<=2);
 });
 test('rent is unpaid through 18th and paid on 19th; reserve top-up only once on 25th',()=>{
-  const base={moneyContext:{partnerCreditCardDebt:0,partnerMoney:0,rentMonthly:60000,records:[],previousReserveAmount:100000},accountSummary:{debitAccounts:[{balanceRub:500000}],investmentAccounts:[],creditCardAccounts:[]},config:{requiredCreditCardGroups:[]}};
+  const base={moneyContext:{partnerMoney:0,rentMonthly:60000,records:[],previousReserveAmount:100000},accountSummary:{debitAccounts:[{balanceRub:500000}],investmentAccounts:[],creditCardAccounts:[]},config:{requiredCreditCardGroups:[]}};
   assert.equal(buildMoneyRow({...base,targetDate:{day:18,iso:'2026-09-18'}}).rentPaid,'нет');
   assert.equal(buildMoneyRow({...base,targetDate:{day:19,iso:'2026-09-19'}}).rentPaid,'да');
   assert.equal(buildMoneyRow({...base,targetDate:{day:25,iso:'2026-09-25'}}).reserveAmount,200000);

@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { WebSocketServer } from "ws";
 import os from "node:os";
 import { atomicWrite } from "./atomic-write.js";
+import { readSavingsPlan, savingsOverview, readMoneyManualAdjustments, recordMoneyManualChanges, type SavingsOverview } from "../scripts/money-rules.mjs";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 
 const execFileAsync = promisify(execFile);
@@ -77,14 +78,9 @@ const MONEY_SYNC_SOURCE = "zenmoney";
 const MONEY_PRE_SYNC_URL_CONFIGURED = Boolean(process.env.ZENMONEY_PRE_SYNC_URL?.trim());
 const MONEY_PRE_SYNC_COMMAND_CONFIGURED = Boolean(process.env.ZENMONEY_PRE_SYNC_COMMAND?.trim());
 const MONEY_PRE_SYNC_WAIT_MS = Number(process.env.ZENMONEY_PRE_SYNC_WAIT_MS || 45000);
-const MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS = [
-  `Долг по кредиткам ${MONEY_PARTNER_LABEL}`,
-  "Долг по кредиткам партнера",
-  "Долг по кредиткам партнёра",
-  "Partner credit card debt"
-];
 const MONEY_PARTNER_MONEY_LABELS = [
   `Деньги ${MONEY_PARTNER_LABEL}`,
+  "Деньги Дианы",
   "Деньги партнера",
   "Деньги партнёра",
   "Partner money"
@@ -235,6 +231,8 @@ type MoneyRecord = {
   freeAmount: number | null;
   investmentAmount: number | null;
   reserveAmount: number | null;
+  bulatSavings: number | null;
+  dianaSavings: number | null;
   creditCardDebt: number | null;
   rentPaid: boolean | null;
 };
@@ -256,6 +254,8 @@ type MoneySummary = {
   freeChange: number | null;
   investmentChange: number | null;
   reserveChange: number | null;
+  bulatSavingsChange: number | null;
+  dianaSavingsChange: number | null;
   creditCardDebtChange: number | null;
   freeShare: number | null;
   investmentShare: number | null;
@@ -285,10 +285,10 @@ type MoneyData = {
   sourceMtimeMs: number | null;
   lastLoadError: string | null;
   sync: MoneyRuntimeSyncState;
+  savings: SavingsOverview | null;
   monthlyIncome: number | null;
   rentMonthly: number | null;
   partnerMoney: number | null;
-  partnerCreditCardDebt: number | null;
   records: MoneyRecord[];
   latestRecord: MoneyRecord | null;
   previousRecord: MoneyRecord | null;
@@ -662,7 +662,7 @@ function findColumn(headers: string[], text: string) {
 function valueDelta(
   latest: MoneyRecord | null,
   previous: MoneyRecord | null,
-  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt">
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "bulatSavings" | "dianaSavings" | "creditCardDebt">
 ) {
   const latestValue = latest?.[key];
   const previousValue = previous?.[key];
@@ -672,7 +672,7 @@ function valueDelta(
 
 function firstRecordWithValue(
   records: MoneyRecord[],
-  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt">
+  key: keyof Pick<MoneyRecord, "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "bulatSavings" | "dianaSavings" | "creditCardDebt">
 ) {
   return records.find((record) => typeof record[key] === "number") ?? null;
 }
@@ -684,10 +684,10 @@ function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: strin
     sourceMtimeMs: stat?.mtimeMs ?? null,
     lastLoadError: error,
     sync: publicMoneySyncState(),
+    savings: null,
     monthlyIncome: null,
     rentMonthly: null,
     partnerMoney: null,
-    partnerCreditCardDebt: null,
     records: [],
     latestRecord: null,
     previousRecord: null,
@@ -701,6 +701,8 @@ function emptyMoneyData(status: MoneyStatus, stat: fs.Stats | null, error: strin
       freeChange: null,
       investmentChange: null,
       reserveChange: null,
+      bulatSavingsChange: null,
+      dianaSavingsChange: null,
       creditCardDebtChange: null,
       freeShare: null,
       investmentShare: null,
@@ -728,6 +730,8 @@ function loadMoneyData(): MoneyData {
     const freeColumn = findColumn(moneyTable?.headers ?? [], "Свободная сумма");
     const investmentColumn = findColumn(moneyTable?.headers ?? [], "Инвестиции");
     const reserveColumn = findColumn(moneyTable?.headers ?? [], "Несгораемая сумма");
+    const bulatColumn = findColumn(moneyTable?.headers ?? [], "Накопления Булата");
+    const dianaColumn = findColumn(moneyTable?.headers ?? [], "Накопления Дианы");
     const debtColumn = findColumn(moneyTable?.headers ?? [], "Долг по кредиткам");
     const rentPaidColumn = findColumn(moneyTable?.headers ?? [], "Аренда заплачена");
 
@@ -744,6 +748,8 @@ function loadMoneyData(): MoneyData {
           freeAmount: parseMoneyAmount(row[freeColumn]),
           investmentAmount: parseMoneyAmount(row[investmentColumn]),
           reserveAmount: parseMoneyAmount(row[reserveColumn]),
+          bulatSavings: parseMoneyAmount(row[bulatColumn]),
+          dianaSavings: parseMoneyAmount(row[dianaColumn]),
           creditCardDebt: parseMoneyAmount(row[debtColumn]),
           rentPaid: parseRentPaid(row[rentPaidColumn])
         } satisfies MoneyRecord;
@@ -777,9 +783,11 @@ function loadMoneyData(): MoneyData {
     const latestRecord = records[records.length - 1] ?? null;
     const previousRecord = records.length > 1 ? records[records.length - 2] : null;
     const firstRecord = records[0] ?? null;
-    const monthlyIncome = parseMoneyAmount(text.match(/\*\*Доход:\*\*\s*([^\n]+)/)?.[1]);
+    const savingsPlan = readSavingsPlan(text);
+    const today = new Intl.DateTimeFormat("en-CA", {timeZone: MONEY_SYNC_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
+    const savings = savingsPlan ? savingsOverview(savingsPlan, records, today < savingsPlan.startDate ? savingsPlan.startDate : today, readMoneyManualAdjustments(text)) : null;
+    const monthlyIncome = savings?.monthlyIncome ?? parseMoneyAmount(text.match(/\*\*Доход:\*\*\s*([^\n]+)/)?.[1]);
     const rentMonthly = parseMoneyAmount(text.match(/аренда:\s*([^\n]+)/i)?.[1]);
-    const partnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS);
     const partnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS);
     const freeShare =
       typeof latestRecord?.freeAmount === "number" && latestRecord.totalAmount
@@ -800,10 +808,10 @@ function loadMoneyData(): MoneyData {
       sourceMtimeMs: stat.mtimeMs,
       lastLoadError: null,
       sync: publicMoneySyncState(),
+      savings,
       monthlyIncome,
       rentMonthly,
       partnerMoney,
-      partnerCreditCardDebt,
       records,
       latestRecord,
       previousRecord,
@@ -821,6 +829,8 @@ function loadMoneyData(): MoneyData {
           "investmentAmount"
         ),
         reserveChange: valueDelta(latestRecord, firstRecordWithValue(records, "reserveAmount"), "reserveAmount"),
+        bulatSavingsChange: valueDelta(latestRecord, firstRecordWithValue(records, "bulatSavings"), "bulatSavings"),
+        dianaSavingsChange: valueDelta(latestRecord, firstRecordWithValue(records, "dianaSavings"), "dianaSavings"),
         creditCardDebtChange: valueDelta(
           latestRecord,
           firstRecordWithValue(records, "creditCardDebt"),
@@ -1515,12 +1525,7 @@ function getCachedData() {
   return cachedData;
 }
 
-type MoneyPartnerUpdate = {
-  partnerMoney?: number;
-  partnerCreditCardDebt?: number;
-};
-
-type MoneyRecordAmountKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
+type MoneyRecordAmountKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "bulatSavings" | "dianaSavings" | "creditCardDebt";
 
 type MoneyRecordUpdate = Partial<Record<MoneyRecordAmountKey, number | null>> & {
   dateIso?: string;
@@ -1532,46 +1537,10 @@ const MONEY_RECORD_AMOUNT_LABELS: Record<MoneyRecordAmountKey, string> = {
   freeAmount: "Свободная сумма",
   investmentAmount: "Инвестиции",
   reserveAmount: "Несгораемая сумма",
+  bulatSavings: "Накопления Булата",
+  dianaSavings: "Накопления Дианы",
   creditCardDebt: "Долг по кредиткам"
 };
-
-function normalizeMoneyPartnerInput(value: unknown, label: string) {
-  const amount = typeof value === "number" ? value : parseMoneyAmount(typeof value === "string" ? value : undefined);
-  if (amount === null || !Number.isFinite(amount)) {
-    throw new Error(`${label}: укажите число в рублях.`);
-  }
-  if (amount < 0) {
-    throw new Error(`${label}: значение должно быть 0 или больше.`);
-  }
-  if (amount > 1_000_000_000_000) {
-    throw new Error(`${label}: значение слишком большое.`);
-  }
-  return Math.round(amount);
-}
-
-function moneyPartnerUpdateFromBody(body: unknown): MoneyPartnerUpdate {
-  if (!body || typeof body !== "object") {
-    throw new Error("Тело запроса должно быть JSON-объектом.");
-  }
-
-  const candidate = body as {
-    partnerMoney?: unknown;
-    partnerCreditCardDebt?: unknown;
-  };
-  const update: MoneyPartnerUpdate = {};
-
-  if ("partnerMoney" in candidate) {
-    update.partnerMoney = normalizeMoneyPartnerInput(candidate.partnerMoney, "Деньги партнера");
-  }
-  if ("partnerCreditCardDebt" in candidate) {
-    update.partnerCreditCardDebt = normalizeMoneyPartnerInput(candidate.partnerCreditCardDebt, "Долг партнера");
-  }
-  if (update.partnerMoney === undefined && update.partnerCreditCardDebt === undefined) {
-    throw new Error("Передайте partnerMoney или partnerCreditCardDebt.");
-  }
-
-  return update;
-}
 
 function normalizeMoneyRecordAmountInput(value: unknown, label: string): number | null {
   if (value === null) return null;
@@ -1618,6 +1587,9 @@ function moneyRecordUpdateFromBody(body: unknown): MoneyRecordUpdate {
   for (const key of Object.keys(MONEY_RECORD_AMOUNT_LABELS) as MoneyRecordAmountKey[]) {
     if (key in candidate) {
       update[key] = normalizeMoneyRecordAmountInput(candidate[key], MONEY_RECORD_AMOUNT_LABELS[key]);
+      if ((key === "bulatSavings" || key === "dianaSavings") && (update[key] ?? 0) < 0) {
+        throw new Error(`${MONEY_RECORD_AMOUNT_LABELS[key]}: значение должно быть 0 или больше.`);
+      }
     }
   }
 
@@ -1630,23 +1602,6 @@ function moneyRecordUpdateFromBody(body: unknown): MoneyRecordUpdate {
   }
 
   return update;
-}
-
-function replaceLabeledMoneyAmount(text: string, labels: string[], value: number) {
-  const newline = text.includes("\r\n") ? "\r\n" : "\n";
-  const lines = text.split(/\r?\n/);
-  const rendered = formatMoneyAmount(value);
-
-  for (const label of labels) {
-    const pattern = new RegExp(`^(.*?${escapeRegExp(label)}\\s*:\\*?\\*?\\s*)(.*)$`, "i");
-    const lineIndex = lines.findIndex((line) => pattern.test(line));
-    if (lineIndex !== -1) {
-      lines[lineIndex] = lines[lineIndex].replace(pattern, `$1${rendered}`);
-      return lines.join(newline);
-    }
-  }
-
-  throw new Error(`Money.md is missing editable value: ${labels[0]}.`);
 }
 
 function renderMarkdownTableRow(cells: string[], widths: number[]) {
@@ -1711,6 +1666,8 @@ function updateMoneyRecordText(text: string, rowId: number, update: MoneyRecordU
       freeAmount: findColumn(headers, "Свободная сумма"),
       investmentAmount: findColumn(headers, "Инвестиции"),
       reserveAmount: findColumn(headers, "Несгораемая сумма"),
+      bulatSavings: findColumn(headers, "Накопления Булата"),
+      dianaSavings: findColumn(headers, "Накопления Дианы"),
       creditCardDebt: findColumn(headers, "Долг по кредиткам")
     };
     const rentPaidColumn = findColumn(headers, "Аренда заплачена");
@@ -1760,112 +1717,6 @@ function updateMoneyRecordText(text: string, rowId: number, update: MoneyRecordU
   }
 
   throw new Error("Money table with columns Дата and Общая сумма was not found.");
-}
-
-function updateLatestMoneyRowForPartnerValues(
-  text: string,
-  oldValues: Required<MoneyPartnerUpdate>,
-  nextValues: Required<MoneyPartnerUpdate>
-) {
-  const newline = text.includes("\r\n") ? "\r\n" : "\n";
-  const lines = text.split(/\r?\n/);
-  let index = 0;
-
-  while (index < lines.length) {
-    if (!lines[index].trim().startsWith("|")) {
-      index += 1;
-      continue;
-    }
-
-    const blockStart = index;
-    while (index < lines.length && lines[index].trim().startsWith("|")) index += 1;
-
-    const parsedRows = lines
-      .slice(blockStart, index)
-      .map((line, offset) => ({
-        lineIndex: blockStart + offset,
-        cells: parseMarkdownTableLine(line)
-      }))
-      .filter((row) => row.cells.length > 0);
-
-    if (parsedRows.length < 2) continue;
-
-    const headers = parsedRows[0].cells;
-    const dateColumn = findColumn(headers, "Дата");
-    const freeColumn = findColumn(headers, "Свободная сумма");
-    const debtColumn = findColumn(headers, "Долг по кредиткам");
-    if (dateColumn === -1 || freeColumn === -1 || debtColumn === -1) continue;
-
-    const dataRows = parsedRows.slice(1).filter((row) => !isMarkdownSeparator(row.cells));
-    const latestRow = [...dataRows].reverse().find((row) => parseMoneyDate(row.cells[dateColumn]) !== null);
-    if (!latestRow) continue;
-
-    const freeAmount = parseMoneyAmount(latestRow.cells[freeColumn]);
-    const creditCardDebt = parseMoneyAmount(latestRow.cells[debtColumn]);
-    if (freeAmount === null || creditCardDebt === null) {
-      throw new Error("Latest Money.md row is missing readable free amount or credit card debt.");
-    }
-
-    const partnerMoneyDelta = nextValues.partnerMoney - oldValues.partnerMoney;
-    const partnerDebtDelta = nextValues.partnerCreditCardDebt - oldValues.partnerCreditCardDebt;
-    const nextFreeAmount = freeAmount - partnerMoneyDelta - partnerDebtDelta;
-    const nextCreditCardDebt = creditCardDebt + partnerDebtDelta;
-    const nextCells = [...latestRow.cells];
-    nextCells[freeColumn] = formatMoneyAmount(nextFreeAmount);
-    nextCells[debtColumn] = formatMoneyAmount(nextCreditCardDebt);
-
-    const tableCells = parsedRows
-      .filter((row) => !isMarkdownSeparator(row.cells))
-      .map((row) => (row.lineIndex === latestRow.lineIndex ? nextCells : row.cells));
-    const columnCount = Math.max(...tableCells.map((cells) => cells.length), nextCells.length);
-    const widths = Array.from({ length: columnCount }, (_, columnIndex) =>
-      Math.max(...tableCells.map((cells) => cells[columnIndex]?.length ?? 0))
-    );
-    lines[latestRow.lineIndex] = renderMarkdownTableRow(nextCells, widths);
-    return lines.join(newline);
-  }
-
-  throw new Error("Money table with columns Дата and Долг по кредиткам was not found.");
-}
-
-function updateMoneyPartnerValuesText(text: string, update: MoneyPartnerUpdate) {
-  const oldPartnerMoney = parseLabeledMoneyAmount(text, MONEY_PARTNER_MONEY_LABELS);
-  const oldPartnerCreditCardDebt = parseLabeledMoneyAmount(text, MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS);
-  if (oldPartnerMoney === null || oldPartnerCreditCardDebt === null) {
-    throw new Error("Money.md is missing readable partner money values.");
-  }
-
-  const nextValues: Required<MoneyPartnerUpdate> = {
-    partnerMoney: update.partnerMoney ?? oldPartnerMoney,
-    partnerCreditCardDebt: update.partnerCreditCardDebt ?? oldPartnerCreditCardDebt
-  };
-  const oldValues: Required<MoneyPartnerUpdate> = {
-    partnerMoney: oldPartnerMoney,
-    partnerCreditCardDebt: oldPartnerCreditCardDebt
-  };
-
-  let nextText = text;
-  if (update.partnerCreditCardDebt !== undefined) {
-    nextText = replaceLabeledMoneyAmount(
-      nextText,
-      MONEY_PARTNER_CREDIT_CARD_DEBT_LABELS,
-      nextValues.partnerCreditCardDebt
-    );
-  }
-  if (update.partnerMoney !== undefined) {
-    nextText = replaceLabeledMoneyAmount(nextText, MONEY_PARTNER_MONEY_LABELS, nextValues.partnerMoney);
-  }
-  if (
-    nextValues.partnerMoney !== oldValues.partnerMoney ||
-    nextValues.partnerCreditCardDebt !== oldValues.partnerCreditCardDebt
-  ) {
-    nextText = updateLatestMoneyRowForPartnerValues(nextText, oldValues, nextValues);
-  }
-
-  return {
-    text: nextText,
-    values: nextValues
-  };
 }
 
 type MoneySyncTrigger = "manual" | "schedule";
@@ -2248,48 +2099,39 @@ app.post("/api/money-data/refresh", async (_request, response) => {
   }
 });
 
-app.patch("/api/money-data/partner", (request, response) => {
-  try {
-    const update = moneyPartnerUpdateFromBody(request.body);
-    const currentText = fs.readFileSync(MONEY_FILE, "utf8");
-    const result = updateMoneyPartnerValuesText(currentText, update);
-
-    if (result.text !== currentText) {
-      atomicWrite(MONEY_FILE, result.text);
-    }
-
-    const data = refreshCache();
-    const updatedAt = new Date().toISOString();
-    broadcast({
-      type: "money-data-updated",
-      event: "partner-settings",
-      path: publicPath(MONEY_FILE),
-      version: dataVersion,
-      updatedAt
-    });
-
-    response.json({
-      ok: true,
-      version: dataVersion,
-      updatedAt,
-      partnerMoney: result.values.partnerMoney,
-      partnerCreditCardDebt: result.values.partnerCreditCardDebt,
-      money: data.money
-    });
-  } catch (error) {
-    response.status(400).json({
-      ok: false,
-      error: errorText(error)
-    });
-  }
-});
-
 app.patch("/api/money-data/records/:rowId", (request, response) => {
   try {
     const rowId = Number(request.params.rowId);
     const update = moneyRecordUpdateFromBody(request.body);
     const currentText = fs.readFileSync(MONEY_FILE, "utf8");
-    const nextText = updateMoneyRecordText(currentText, rowId, update);
+    const money = loadMoneyData();
+    const originalRecord = money.records.find(row => row.rowId === rowId);
+    if (originalRecord && money.savings) {
+      const nextDate = update.dateIso ?? originalRecord.dateIso;
+      const split = originalRecord.dateIso >= money.savings.startDate;
+      if (split !== (nextDate >= money.savings.startDate)) throw new Error("Срез нельзя переносить через дату смены правил учёта.");
+      if (split) {
+        const next = {...originalRecord, ...update};
+        if (next.reserveAmount !== null) throw new Error("В новом срезе используются личные накопления.");
+        if ([next.bulatSavings, next.dianaSavings, next.totalAmount, next.investmentAmount, next.creditCardDebt].some(value => value === null)) {
+          throw new Error("Заполните общую сумму, инвестиции, личные накопления и долг.");
+        }
+        const protectedAmount = next.bulatSavings! + next.dianaSavings! + next.investmentAmount! + next.creditCardDebt! + (next.rentPaid === false ? money.rentMonthly ?? 0 : 0);
+        if (update.investmentAmount !== undefined && update.totalAmount === undefined) {
+          update.totalAmount = next.totalAmount! + next.investmentAmount! - (originalRecord.investmentAmount ?? 0);
+        }
+        if (update.freeAmount !== undefined && update.totalAmount === undefined && Object.keys(update).length === 1) {
+          if (update.freeAmount === null) throw new Error("Укажите общий бюджет.");
+          update.totalAmount = update.freeAmount + protectedAmount;
+        } else {
+          update.freeAmount = (update.totalAmount ?? next.totalAmount)! - protectedAmount;
+        }
+      }
+    }
+    let nextText = updateMoneyRecordText(currentText, rowId, update);
+    if (originalRecord) {
+      nextText = recordMoneyManualChanges(nextText, readSavingsPlan(currentText), originalRecord, update);
+    }
 
     if (nextText !== currentText) {
       atomicWrite(MONEY_FILE, nextText);

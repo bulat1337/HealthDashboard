@@ -1080,6 +1080,25 @@ select:focus-visible {
   margin-bottom: 18px;
 }
 
+.money-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.money-snapshot-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+@media (min-width: 1280px) {
+  .money-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .money-tile > strong { font-size: 26px; }
+}
+
+@media (max-width: 760px) {
+  .money-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .money-empty-panel {
   display: flex;
   align-items: center;
@@ -1166,132 +1185,6 @@ select:focus-visible {
   margin-top: 14px;
 }
 
-.money-partner-form {
-  display: grid;
-  gap: 11px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-
-.money-partner-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.money-partner-heading strong {
-  color: var(--ink);
-  font-size: 14px;
-}
-
-.money-partner-heading span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.money-partner-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.money-input-control {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.money-input-shell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-  padding: 0 9px;
-  color: var(--muted);
-}
-
-.money-input-shell:focus-within {
-  border-color: rgba(30, 64, 175, 0.55);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
-}
-
-.money-input-shell input {
-  min-width: 0;
-  width: 100%;
-  height: 38px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  font:
-    700 14px/1 "Fira Code",
-    "Fira Sans",
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-
-.money-input-shell select {
-  min-width: 0;
-  width: 100%;
-  height: 38px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  font:
-    700 14px/1 "Fira Sans",
-    ui-sans-serif,
-    system-ui,
-    sans-serif;
-}
-
-.money-input-shell > span {
-  flex: 0 0 auto;
-  font-size: 12px;
-}
-
-.money-partner-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.money-partner-status {
-  min-width: 0;
-  color: var(--green);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.money-partner-status.error {
-  color: #991b1b;
-}
-
-.money-save-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
 .money-secondary-button {
   display: inline-flex;
   align-items: center;
@@ -1307,7 +1200,6 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.money-save-button:disabled,
 .money-secondary-button:disabled {
   cursor: default;
   opacity: 0.55;
@@ -1319,57 +1211,8 @@ select:focus-visible {
   gap: 18px;
 }
 
-.money-events-panel,
 .money-history-panel {
   padding: 20px;
-}
-
-.money-history-panel {
-  order: -1;
-}
-
-.money-events-panel .panel-heading svg {
-  color: var(--primary);
-}
-
-.event-list {
-  display: grid;
-  gap: 10px;
-}
-
-.event-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 11px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfdff;
-}
-
-.event-row div,
-.event-row time {
-  display: grid;
-  gap: 3px;
-}
-
-.event-row strong {
-  color: var(--ink-blue);
-}
-
-.event-row span,
-.event-row small,
-.muted-line {
-  color: var(--muted);
-}
-
-.event-row time {
-  flex: 0 0 auto;
-  color: var(--ink);
-  font-family:
-    "Fira Code", "Fira Sans", ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-align: right;
 }
 
 .muted-line {
@@ -2275,20 +2118,6 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .money-partner-heading,
-  .money-partner-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .money-partner-fields {
-    grid-template-columns: 1fr;
-  }
-
-  .money-save-button {
-    width: 100%;
-  }
-
   .sport-control-band {
     align-items: stretch;
     flex-direction: column;
@@ -2781,7 +2610,6 @@ select {
   }
   .money-table input,
   .money-table select,
-  .money-input-shell input,
   .sport-run-distance-input-shell input,
   .sport-rep-max-input-shell input {
     font-size: 16px;
@@ -3127,11 +2955,14 @@ select {
 
 @media (min-width: 960px) {
   .money-metrics {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .sport-layout {
     grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.78fr);
   }
+}
+@media (min-width: 1280px) {
+  .money-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
 @media (min-width: 960px) and (max-width: 1120px) {
   .main-grid {
@@ -3140,10 +2971,10 @@ select {
 }
 @media (min-width: 761px) and (max-width: 959px) {
   .money-metrics {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .money-metrics > :first-child {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 }
 @media (max-width: 760px) {
@@ -3219,4 +3050,8 @@ select {
   .sport-streak-weekday {
     min-height: 44px;
   }
+}
+
+@media (max-width: 760px) {
+  .money-table td[data-empty="true"] { display: none; }
 }

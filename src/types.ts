@@ -1,3 +1,4 @@
+import type { SavingsOverview } from "../scripts/money-rules.mjs";
 export type NormalizedMeasurement = {
   rowId: number;
   user: string;
@@ -69,6 +70,8 @@ export type MoneyRecord = {
   freeAmount: number | null;
   investmentAmount: number | null;
   reserveAmount: number | null;
+  bulatSavings: number | null;
+  dianaSavings: number | null;
   creditCardDebt: number | null;
   rentPaid: boolean | null;
 };
@@ -79,6 +82,8 @@ export type MoneyRecordUpdate = {
   freeAmount: number | null;
   investmentAmount: number | null;
   reserveAmount: number | null;
+  bulatSavings: number | null;
+  dianaSavings: number | null;
   creditCardDebt: number | null;
   rentPaid: boolean | null;
 };
@@ -100,6 +105,8 @@ export type MoneySummary = {
   freeChange: number | null;
   investmentChange: number | null;
   reserveChange: number | null;
+  bulatSavingsChange: number | null;
+  dianaSavingsChange: number | null;
   creditCardDebtChange: number | null;
   freeShare: number | null;
   investmentShare: number | null;
@@ -129,10 +136,10 @@ export type MoneyData = {
   sourceMtimeMs: number | null;
   lastLoadError: string | null;
   sync: MoneySyncState;
+  savings: SavingsOverview | null;
   monthlyIncome: number | null;
   rentMonthly: number | null;
   partnerMoney: number | null;
-  partnerCreditCardDebt: number | null;
   records: MoneyRecord[];
   latestRecord: MoneyRecord | null;
   previousRecord: MoneyRecord | null;

@@ -62,25 +62,6 @@ export async function updateSportDay(
   return response.json() as Promise<{ ok: true; updatedAt: string; data: SportDataResponse["data"] }>;
 }
 
-export async function updatePartnerMoneyData(
-  input: { partnerMoney: number; partnerCreditCardDebt: number },
-  signal?: AbortSignal
-) {
-  const response = await fetch("/api/money-data/partner", {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(input),
-    signal
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
-  }
-  return response.json() as Promise<unknown>;
-}
-
 export async function updateMoneyRecordData(rowId: number, input: MoneyRecordUpdate, signal?: AbortSignal) {
   const response = await fetch(`/api/money-data/records/${rowId}`, {
     method: "PATCH",

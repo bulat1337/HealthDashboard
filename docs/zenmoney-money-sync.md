@@ -165,10 +165,22 @@ The script mirrors the current `Money.md` rules:
 - total money is `liquid debit total + investment total`;
 - credit-card debt comes from active card accounts with `creditLimit > 0` or negative balance as `max(0, -balance)`;
 - required credit-card groups default to Alfa and T-Bank;
-- manual partner credit-card debt and partner money are read from `Money.md`;
-- reserve increases by 100k only on the 25th, and repeated syncs for an existing 25th row reuse the reserve from the previous dated row;
-- rent is unpaid from the 10th through the 19th, inclusive;
-- free money is `liquid debit total - credit-card debt - partner money - unpaid rent - reserve`.
+- all participants’ credit-card debt comes from the selected ZenMoney accounts; legacy manual debt labels are ignored;
+- separate personal savings are configured by the `Начало раздельного учёта` label, participant table (`Базовые накопления`) and transition table (`Правило пополнения`);
+- participant rows define monthly income, monthly savings, two salary days and starting savings; transition rows override a salary date with a fixed contribution, including zero for a skipped date;
+- contributions are rounded to whole rubles; Diana’s contribution on 15 October 2026 is zero, with subsequent contributions fixed at 20,000 ₽. Her actual savings are corrected in the ordinary snapshot editor;
+- contributions since the latest separate-savings snapshot are carried forward, including missed refresh dates; an existing same-day snapshot is reused so repeats do not add savings twice;
+- a manual savings edit is saved as a dated balance in Money.md. An edit one or two calendar days before a positive scheduled contribution handles that contribution early; its scheduled date adds nothing. Later contributions resume normally, independently for each participant;
+- only fields whose values actually changed create manual adjustments. Repeated saves, full snapshot submissions and restarts preserve the saved adjustments;
+- retroactive transition entries before the split date are added once to starting savings; old reserve snapshots keep their original values;
+- rent defaults to unpaid from the 10th through the 18th, inclusive. A manual rent status takes precedence from the edited snapshot date through that calendar month, until another manual status is saved; the following month returns to the default calendar;
+- shared budget is `liquid debit total - credit-card debt - unpaid rent - personal savings of both participants`; money already moved into personal savings is never separately subtracted again;
+- a salary day of 30 falls on the last day of February;
+- files without a savings plan retain the legacy reserve/partner-money calculation. Malformed plans produce an error instead of silently using the legacy rules.
+
+The server and CLI share `scripts/money-rules.mjs`. The web record editor also preserves the investment rule: changing investments changes total assets by the same delta and leaves the shared budget unchanged. New snapshots require readable savings, investments, debt and total assets. Historical snapshots remain editable under their original rules.
+
+Manual adjustments are stored in a `money-manual-adjustments` HTML comment inside Money.md, alongside its snapshots. The API and ZenMoney sync read the same metadata. Savings calculations start from the latest manual balance for each participant and add subsequent unhandled contributions, so later automatic snapshots cannot undo a manual correction. Account balances, investments and credit-card debt continue to update from ZenMoney.
 
 Currency conversion uses ZenMoney `Instrument.rate`, which is defined as the currency value in rubles.
 

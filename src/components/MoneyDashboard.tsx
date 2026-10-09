@@ -1,8 +1,7 @@
-import type { CSSProperties, FormEvent } from "react";
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Banknote,
-  CalendarClock,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -15,12 +14,12 @@ import {
   Wallet,
   X
 } from "lucide-react";
-import { updateMoneyRecordData, updatePartnerMoneyData } from "../api";
+import { updateMoneyRecordData } from "../api";
 import { formatDateShort, formatDateTime, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
 
-type MoneyKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "creditCardDebt";
+type MoneyKey = "totalAmount" | "freeAmount" | "investmentAmount" | "reserveAmount" | "bulatSavings" | "dianaSavings" | "creditCardDebt";
 
 type MoneyTile = {
   key: MoneyKey;
@@ -48,6 +47,8 @@ type MoneyRecordForm = {
   freeAmount: string;
   investmentAmount: string;
   reserveAmount: string;
+  bulatSavings: string;
+  dianaSavings: string;
   creditCardDebt: string;
   rentPaid: RentPaidFormValue;
 };
@@ -55,10 +56,11 @@ type MoneyRecordForm = {
 type MoneyRecordAmountField = Exclude<keyof MoneyRecordForm, "dateIso" | "rentPaid">;
 
 const MONEY_TILES: MoneyTile[] = [
+  { key: "freeAmount", label: "Общий бюджет", icon: Wallet, tone: "green" },
+  { key: "bulatSavings", label: "Накопления Булата", icon: PiggyBank, tone: "amber" },
+  { key: "dianaSavings", label: "Накопления Дианы", icon: PiggyBank, tone: "amber" },
   { key: "totalAmount", label: "Общая сумма", icon: Landmark, tone: "blue" },
-  { key: "freeAmount", label: "Свободная", icon: Wallet, tone: "green" },
   { key: "investmentAmount", label: "Инвестиции", icon: LineChart, tone: "teal" },
-  { key: "reserveAmount", label: "Несгораемая", icon: PiggyBank, tone: "amber" },
   { key: "creditCardDebt", label: "Кредитки", icon: CreditCard, tone: "red" }
 ];
 
@@ -92,13 +94,6 @@ function recordDelta(latest: MoneyRecord | null, previous: MoneyRecord | null, k
   return latestValue - previousValue;
 }
 
-function daysLabel(days: number) {
-  if (days === 0) return "сегодня";
-  if (days === 1) return "завтра";
-  if (days > 1) return `через ${days} д`;
-  return `${Math.abs(days)} д назад`;
-}
-
 function rentPaidLabel(value: boolean | null) {
   if (value === true) return "да";
   if (value === false) return "нет";
@@ -109,8 +104,10 @@ function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): Compos
   const segments: CompositionSegment[] = [
     { label: "Свободно", value: Math.max(0, latest.freeAmount ?? 0), color: "#15803d" },
     { label: "Инвестиции", value: Math.max(0, latest.investmentAmount ?? 0), color: "#0f766e" },
-    { label: "Несгораемая", value: Math.max(0, latest.reserveAmount ?? 0), color: "#f59e0b" },
-    { label: "Деньги партнера", value: Math.max(0, money.partnerMoney ?? 0), color: "#64748b" },
+    { label: "Несгораемая сумма", value: Math.max(0, latest.reserveAmount ?? 0), color: "#f59e0b" },
+    { label: "Накопления Булата", value: Math.max(0, latest.bulatSavings ?? 0), color: "#b45309" },
+    { label: "Накопления Дианы", value: Math.max(0, latest.dianaSavings ?? 0), color: "#eab308" },
+    { label: "Деньги Дианы до перехода", value: latest.dianaSavings === null ? Math.max(0, money.partnerMoney ?? 0) : 0, color: "#94a3b8" },
     { label: "Кредитки", value: Math.max(0, latest.creditCardDebt ?? 0), color: "#dc2626" }
   ];
 
@@ -123,15 +120,6 @@ function buildCompositionSegments(money: MoneyData, latest: MoneyRecord): Compos
 
 function inputValue(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
-}
-
-function parseMoneyInput(value: string, label: string) {
-  const normalized = value.replace(/\s/g, "").replace(",", ".");
-  if (!normalized) throw new Error(`${label}: укажите сумму.`);
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) throw new Error(`${label}: укажите число.`);
-  if (parsed < 0) throw new Error(`${label}: значение должно быть 0 или больше.`);
-  return Math.round(parsed);
 }
 
 function rentPaidFormValue(value: boolean | null | undefined): RentPaidFormValue {
@@ -147,6 +135,8 @@ function moneyRecordFormValue(record: MoneyRecord | null | undefined): MoneyReco
     freeAmount: inputValue(record?.freeAmount),
     investmentAmount: inputValue(record?.investmentAmount),
     reserveAmount: inputValue(record?.reserveAmount),
+    bulatSavings: inputValue(record?.bulatSavings),
+    dianaSavings: inputValue(record?.dianaSavings),
     creditCardDebt: inputValue(record?.creditCardDebt),
     rentPaid: rentPaidFormValue(record?.rentPaid)
   };
@@ -192,16 +182,22 @@ function unpaidRentFromForm(form: MoneyRecordForm, rentMonthly: number | null) {
 function recalculateMoneyRecordForm(
   form: MoneyRecordForm,
   changedField: keyof MoneyRecordForm,
-  money: MoneyData
+  money: MoneyData,
+  previousInvestment = 0
 ) {
   if (changedField === "dateIso") return form;
 
   const freeAmount = recordDraftAmount(form, "freeAmount");
   const investmentAmount = recordDraftAmount(form, "investmentAmount");
-  const reserveAmount = recordDraftAmount(form, "reserveAmount");
+  const split = Boolean(money.savings && form.dateIso >= money.savings.startDate);
+  const reserveAmount = split ? recordDraftAmount(form, "bulatSavings") + recordDraftAmount(form, "dianaSavings") : recordDraftAmount(form, "reserveAmount");
   const creditCardDebt = recordDraftAmount(form, "creditCardDebt");
-  const partnerMoney = money.partnerMoney ?? 0;
+  const partnerMoney = split ? 0 : money.partnerMoney ?? 0;
   const unpaidRent = unpaidRentFromForm(form, money.rentMonthly);
+
+  if (changedField === "investmentAmount") {
+    return {...form, totalAmount: formatRecordDraftAmount(recordDraftAmount(form, "totalAmount") + investmentAmount - previousInvestment)};
+  }
 
   if (changedField === "freeAmount") {
     return {
@@ -227,12 +223,6 @@ function formChanged(current: MoneyRecordForm, original: MoneyRecordForm) {
 
 export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProps) {
   const latest = money.latestRecord;
-  const [partnerForm, setPartnerForm] = useState({
-    partnerMoney: inputValue(money.partnerMoney),
-    partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
-  });
-  const [partnerSaveStatus, setPartnerSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [partnerSaveError, setPartnerSaveError] = useState<string | null>(null);
   const [showAllRecords, setShowAllRecords] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(latest?.rowId ?? null);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
@@ -245,13 +235,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
   const [recordForm, setRecordForm] = useState<MoneyRecordForm>(() => moneyRecordFormValue(selectedRecord));
   const [recordSaveStatus, setRecordSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [recordSaveError, setRecordSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPartnerForm({
-      partnerMoney: inputValue(money.partnerMoney),
-      partnerCreditCardDebt: inputValue(money.partnerCreditCardDebt)
-    });
-  }, [money.partnerMoney, money.partnerCreditCardDebt]);
 
   useEffect(() => {
     setSelectedRecordId((current) => {
@@ -271,6 +254,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
     selectedRecord?.freeAmount,
     selectedRecord?.investmentAmount,
     selectedRecord?.reserveAmount,
+    selectedRecord?.bulatSavings,
+    selectedRecord?.dianaSavings,
     selectedRecord?.creditCardDebt,
     selectedRecord?.rentPaid
   ]);
@@ -281,14 +266,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
     setScrollTargetId(null);
   }, [scrollTargetId, selectedRecord?.rowId, showAllRecords]);
 
-  function updatePartnerField(field: keyof typeof partnerForm, value: string) {
-    setPartnerForm((current) => ({ ...current, [field]: value }));
-    setPartnerSaveStatus("idle");
-    setPartnerSaveError(null);
-  }
-
   function updateRecordField<Key extends keyof MoneyRecordForm>(field: Key, value: MoneyRecordForm[Key]) {
-    setRecordForm((current) => recalculateMoneyRecordForm({ ...current, [field]: value }, field, money));
+    setRecordForm((current) => recalculateMoneyRecordForm({ ...current, [field]: value }, field, money, recordDraftAmount(current, "investmentAmount")));
     setRecordSaveStatus("idle");
     setRecordSaveError(null);
   }
@@ -310,25 +289,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
     setRecordSaveError(null);
   }
 
-  async function savePartnerValues(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPartnerSaveStatus("saving");
-    setPartnerSaveError(null);
-
-    try {
-      const nextValues = {
-        partnerMoney: parseMoneyInput(partnerForm.partnerMoney, "Деньги партнера"),
-        partnerCreditCardDebt: parseMoneyInput(partnerForm.partnerCreditCardDebt, "Долг партнера")
-      };
-      await updatePartnerMoneyData(nextValues);
-      await onMoneyDataUpdated?.();
-      setPartnerSaveStatus("saved");
-    } catch (error) {
-      setPartnerSaveStatus("idle");
-      setPartnerSaveError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   async function saveMoneyRecord(record: MoneyRecord) {
     setRecordSaveStatus("saving");
     setRecordSaveError(null);
@@ -341,6 +301,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
         freeAmount: parseOptionalMoneyInput(recordForm.freeAmount, "Свободная сумма"),
         investmentAmount: parseOptionalMoneyInput(recordForm.investmentAmount, "Инвестиции"),
         reserveAmount: parseOptionalMoneyInput(recordForm.reserveAmount, "Несгораемая сумма"),
+        bulatSavings: parseOptionalMoneyInput(recordForm.bulatSavings, "Накопления Булата"),
+        dianaSavings: parseOptionalMoneyInput(recordForm.dianaSavings, "Накопления Дианы"),
         creditCardDebt: parseOptionalMoneyInput(recordForm.creditCardDebt, "Долг по кредиткам"),
         rentPaid: parseRentPaidFormValue(recordForm.rentPaid)
       });
@@ -352,10 +314,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
       setRecordSaveError(error instanceof Error ? error.message : String(error));
     }
   }
-
-  const partnerFormChanged =
-    partnerForm.partnerMoney !== inputValue(money.partnerMoney) ||
-    partnerForm.partnerCreditCardDebt !== inputValue(money.partnerCreditCardDebt);
 
   if (money.status !== "ready") {
     return (
@@ -373,6 +331,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
 
   if (!latest) {
     return (
+      <>
+
       <section className="panel money-empty-panel">
         <CircleAlert size={28} />
         <div>
@@ -380,6 +340,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
           <p>Сервер прочитал файл, таблица денег пока пустая.</p>
         </div>
       </section>
+      </>
     );
   }
 
@@ -387,25 +348,30 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
   const visibleRows = showAllRecords ? [...money.records].reverse() : money.records.slice(-6).reverse();
   const compositionSegments = buildCompositionSegments(money, activeRecord);
   const compositionTotal = compositionSegments.reduce((sum, segment) => sum + segment.value, 0);
+  const legacyLatest = Boolean(money.savings && latest.dateIso < money.savings.startDate);
+  const tiles = money.savings ? MONEY_TILES : MONEY_TILES.filter(tile => tile.key !== "bulatSavings" && tile.key !== "dianaSavings").concat({key: "reserveAmount", label: "Несгораемая сумма", icon: PiggyBank, tone: "amber"});
   const moneyPeriodLabel = formatMoneyPeriodLabel(money.summary.firstDateIso, money.summary.lastDateIso);
 
   return (
     <>
+      {money.savings && <p className="money-snapshot-note">Банковский срез: {formatDateShort(latest.dateIso)}. Личные накопления учитываются с {formatDateShort(money.savings.startDate)} по новому плану.</p>}
       <section className="quick-metrics money-metrics" aria-label="Денежные метрики">
-        {MONEY_TILES.map((tile) => {
+        {tiles.map((tile) => {
           const Icon = tile.icon;
-          const value = latest[tile.key];
+          const personal = tile.key === "bulatSavings" || tile.key === "dianaSavings";
+          const value = tile.key === "freeAmount" && legacyLatest ? null : personal && money.savings ? money.savings[tile.key as "bulatSavings" | "dianaSavings"] : latest[tile.key];
           const delta = recordDelta(latest, money.previousRecord, tile.key);
           return (
             <article className={`metric-tile money-tile tone-${tile.tone}`} key={tile.key}>
               <Icon size={20} />
               <span className="tile-label">{tile.label}</span>
               <strong>{formatMoney(value)}</strong>
-              <small>{formatMoneyDelta(delta)} к прошлому срезу</small>
+              <small>{tile.key === "freeAmount" && legacyLatest ? "Нужен срез по новым правилам" : personal && money.savings ? "По плану на текущую дату" : `${formatMoneyDelta(delta)} к прошлому срезу`}</small>
             </article>
           );
         })}
       </section>
+
 
       <section className="main-grid money-grid">
         <article className="panel chart-panel">
@@ -428,7 +394,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
           />
 
           <div className="legend-row money-legend">
-            {MONEY_SERIES.map((series) => (
+            {MONEY_SERIES.filter(series => money.records.some(record => typeof record[series.key] === "number")).map((series) => (
               <span key={series.key}>
                 <i className="legend-line" style={{ borderTopColor: series.color }} /> {series.label}
               </span>
@@ -478,54 +444,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
             </div>
           </div>
 
-          <form className="money-partner-form" onSubmit={savePartnerValues}>
-            <div className="money-partner-heading">
-              <strong>Ручные суммы партнера</strong>
-              <span>Сохраняются в Money.md</span>
-            </div>
-            <div className="money-partner-fields">
-              <label className="money-input-control">
-                <span>Деньги партнера</span>
-                <span className="money-input-shell">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={partnerForm.partnerMoney}
-                    onChange={(event) => updatePartnerField("partnerMoney", event.target.value)}
-                    aria-label="Деньги партнера"
-                  />
-                  <span>₽</span>
-                </span>
-              </label>
-              <label className="money-input-control">
-                <span>Долг партнера</span>
-                <span className="money-input-shell">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={partnerForm.partnerCreditCardDebt}
-                    onChange={(event) => updatePartnerField("partnerCreditCardDebt", event.target.value)}
-                    aria-label="Долг партнера"
-                  />
-                  <span>₽</span>
-                </span>
-              </label>
-            </div>
-            <div className="money-partner-actions">
-              <span className={`money-partner-status ${partnerSaveError ? "error" : ""}`} role="status">
-                {partnerSaveError ?? (partnerSaveStatus === "saved" ? "Сохранено" : "")}
-              </span>
-              <button
-                className="money-save-button"
-                type="submit"
-                disabled={partnerSaveStatus === "saving" || !partnerFormChanged}
-              >
-                <Save size={15} />
-                <span>{partnerSaveStatus === "saving" ? "Сохранение" : "Сохранить"}</span>
-              </button>
-            </div>
-          </form>
-
           <dl className="stats-list money-stats-list">
             <div>
               <dt>Свободная доля</dt>
@@ -552,35 +470,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
       </section>
 
       <section className="money-bottom-grid">
-        <article className="panel money-events-panel">
-          <div className="panel-heading compact">
-            <div>
-              <h2>Кредитные события</h2>
-              <span>Ближайшие даты из Money.md</span>
-            </div>
-            <CalendarClock size={22} />
-          </div>
-
-          <div className="event-list">
-            {money.upcomingEvents.length > 0 ? (
-              money.upcomingEvents.map((event) => (
-                <div className="event-row" key={event.rowId}>
-                  <div>
-                    <strong>{event.bank}</strong>
-                    <span>{event.title}</span>
-                  </div>
-                  <time dateTime={event.dateIso}>
-                    {formatDateShort(event.dateIso)}
-                    <small>{daysLabel(event.daysFromToday)}</small>
-                  </time>
-                </div>
-              ))
-            ) : (
-              <p className="muted-line">Будущие события не указаны.</p>
-            )}
-          </div>
-        </article>
-
         <article className="panel money-history-panel">
           <div className="panel-heading compact">
             <div>
@@ -615,9 +504,10 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                   <th scope="col" role="columnheader">Действия</th>
                   <th scope="col" role="columnheader">Дата</th>
                   <th scope="col" role="columnheader">Общая</th>
-                  <th scope="col" role="columnheader">Свободная</th>
+                  <th scope="col" role="columnheader">Общий бюджет</th>
                   <th scope="col" role="columnheader">Инвестиции</th>
-                  <th scope="col" role="columnheader">Резерв</th>
+                  <th scope="col" role="columnheader">Несгораемая сумма</th>
+                  {money.savings && <><th scope="col" role="columnheader">Булат</th><th scope="col" role="columnheader">Диана</th></>}
                   <th scope="col" role="columnheader">Кредитки</th>
                   <th scope="col" role="columnheader">Аренда</th>
                 </tr>
@@ -731,7 +621,7 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.totalAmount)
                         )}
                       </td>
-                      <td role="cell" data-label="Свободная">
+                      <td role="cell" data-label="Общий бюджет">
                         {isEditing ? (
                           <span className="money-table-input-shell">
                             <input
@@ -765,8 +655,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.investmentAmount)
                         )}
                       </td>
-                      <td role="cell" data-label="Резерв">
-                        {isEditing ? (
+                      <td role="cell" data-label="Несгораемая сумма" data-empty={Boolean(money.savings && record.dateIso >= money.savings.startDate)}>
+                        {isEditing && (!money.savings || record.dateIso < money.savings.startDate) ? (
                           <span className="money-table-input-shell">
                             <input
                               type="text"
@@ -782,6 +672,13 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
                           formatMoney(record.reserveAmount)
                         )}
                       </td>
+                      {money.savings && (["bulatSavings", "dianaSavings"] as const).map(key => (
+                        <td role="cell" data-label={key === "bulatSavings" ? "Накопления Булата" : "Накопления Дианы"} key={key} data-empty={record.dateIso < money.savings!.startDate}>
+                          {isEditing && record.dateIso >= money.savings!.startDate ? <span className="money-table-input-shell">
+                            <input type="text" inputMode="decimal" value={recordForm[key]} onChange={event => updateRecordField(key, event.target.value)} aria-label={key === "bulatSavings" ? "Накопления Булата" : "Накопления Дианы"}/><span>₽</span>
+                          </span> : formatMoney(record[key])}
+                        </td>
+                      ))}
                       <td role="cell" data-label="Кредитки">
                         {isEditing ? (
                           <span className="money-table-input-shell">

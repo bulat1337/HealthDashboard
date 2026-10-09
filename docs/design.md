@@ -25,6 +25,7 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   intercept clicks. Money points retain keyboard selection.
 - Show six fields of the selected health measurement initially. A labeled
   disclosure reveals every remaining field without changing values.
+- Money shows the shared budget, two personal savings balances, the trend chart, snapshot composition and editable history. Contributions follow Money.md automatically, with one skipped Diana contribution on 15 October 2026 and a manual snapshot correction that day. The historical chart retains the original «Несгораемая сумма» series and its values. Total credit-card debt comes from ZenMoney, including Diana’s cards.
 - Money history retains one data/editing path: desktop table, labeled mobile
   record cards. Inputs and actions remain reachable without horizontal scrolling.
 - On phones, choosing a sport calendar day moves to the entry controls, with

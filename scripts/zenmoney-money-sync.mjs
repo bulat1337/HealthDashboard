@@ -7,6 +7,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSavingsPlan, calculateSavings, savingsColumns, readMoneyManualAdjustments, moneyRentPaid } from "./money-rules.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -574,6 +575,8 @@ function readMoneyContext(text) {
   const dateColumn = findColumn(table.headers, "Дата");
   const investmentColumn = findColumn(table.headers, "Инвестиции");
   const reserveColumn = findColumn(table.headers, "Несгораемая сумма");
+  const bulatColumn = findColumn(table.headers, "Накопления Булата");
+  const dianaColumn = findColumn(table.headers, "Накопления Дианы");
 
   const records = lines
     .slice(table.start + 2, table.end)
@@ -589,20 +592,17 @@ function readMoneyContext(text) {
         date,
         dateIso,
         investmentAmount: parseMoneyAmount(cells[investmentColumn]),
-        reserveAmount: parseMoneyAmount(cells[reserveColumn])
+        reserveAmount: parseMoneyAmount(cells[reserveColumn]),
+        bulatSavings: parseMoneyAmount(cells[bulatColumn]),
+        dianaSavings: parseMoneyAmount(cells[dianaColumn])
       };
     })
     .filter(Boolean);
 
   const latestRecord = records[records.length - 1] || null;
-  const partnerCreditCardDebt = parseLabeledMoneyAmount(text, [
-    `Долг по кредиткам ${MONEY_PARTNER_LABEL}`,
-    "Долг по кредиткам партнера",
-    "Долг по кредиткам партнёра",
-    "Partner credit card debt"
-  ]);
   const partnerMoney = parseLabeledMoneyAmount(text, [
     `Деньги ${MONEY_PARTNER_LABEL}`,
+    "Деньги Дианы",
     "Деньги партнера",
     "Деньги партнёра",
     "Partner money"
@@ -615,7 +615,8 @@ function readMoneyContext(text) {
     records,
     latestRecord,
     previousReserveAmount: latestRecord?.reserveAmount ?? 0,
-    partnerCreditCardDebt,
+    savingsPlan: readSavingsPlan(text),
+    manualAdjustments: readMoneyManualAdjustments(text),
     partnerMoney,
     rentMonthly
   };
@@ -811,8 +812,7 @@ function validateCreditCardGroups(creditCardAccounts, groups) {
 
 function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
   const missing = [];
-  if (moneyContext.partnerCreditCardDebt === null) missing.push(`Долг по кредиткам ${MONEY_PARTNER_LABEL}`);
-  if (moneyContext.partnerMoney === null) missing.push(`Деньги ${MONEY_PARTNER_LABEL}`);
+  if (!moneyContext.savingsPlan && moneyContext.partnerMoney === null) missing.push(`Деньги ${MONEY_PARTNER_LABEL}`);
   if (moneyContext.rentMonthly === null) missing.push("аренда");
   if (missing.length > 0) {
     throw new Error(`Money.md is missing readable values: ${missing.join(", ")}.`);
@@ -846,13 +846,17 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
     throw new Error(`ZenMoney credit card accounts are missing required groups: ${missingCreditGroups.join(", ")}.`);
   }
 
-  const topUp = targetDate.day === 25 ? 100000 : 0;
+  const split = moneyContext.savingsPlan && targetDate.iso >= moneyContext.savingsPlan.startDate;
+  const topUp = !split && targetDate.day === 25 ? 100000 : 0;
   const previousReserveAmount = previousReserveAmountForTargetDate(moneyContext, targetDate);
-  const reserveAmount = previousReserveAmount + topUp;
-  const unpaidRent = targetDate.day >= 10 && targetDate.day <= 18 ? moneyContext.rentMonthly : 0;
-  const rentPaid = targetDate.day >= 10 && targetDate.day <= 18 ? "нет" : "да";
-  const creditCardDebt = zenmoneyCreditCardDebt + moneyContext.partnerCreditCardDebt;
-  const freeAmount = debitTotal - creditCardDebt - moneyContext.partnerMoney - unpaidRent - reserveAmount;
+  const savings = split ? calculateSavings(moneyContext.savingsPlan, moneyContext.records, targetDate.iso, moneyContext.manualAdjustments) : null;
+  const reserveAmount = split ? null : previousReserveAmount + topUp;
+  const paid = moneyRentPaid(moneyContext.manualAdjustments ?? {rent: []}, targetDate.iso);
+  const unpaidRent = paid ? 0 : moneyContext.rentMonthly;
+  const rentPaid = paid ? "да" : "нет";
+  const creditCardDebt = zenmoneyCreditCardDebt;
+  const protectedAmount = savings ? savings.bulatSavings + savings.dianaSavings : (reserveAmount ?? 0) + (moneyContext.partnerMoney ?? 0);
+  const freeAmount = debitTotal - creditCardDebt - unpaidRent - protectedAmount;
 
   return {
     date: targetDate.display,
@@ -861,6 +865,8 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
     freeAmount,
     investmentAmount: investmentTotal,
     reserveAmount,
+    bulatSavings: savings?.bulatSavings ?? null,
+    dianaSavings: savings?.dianaSavings ?? null,
     creditCardDebt,
     rentPaid,
     diagnostics: {
@@ -870,7 +876,6 @@ function buildMoneyRow({ moneyContext, accountSummary, targetDate, config }) {
       liquidDebitTotal: debitTotal,
       investmentTotal,
       zenmoneyCreditCardDebt,
-      partnerCreditCardDebt: moneyContext.partnerCreditCardDebt,
       partnerMoney: moneyContext.partnerMoney,
       unpaidRent,
       reserveTopUp: topUp
@@ -884,7 +889,8 @@ function tableRowCells(row) {
     formatMoney(row.totalAmount),
     formatMoney(row.freeAmount),
     formatMoney(row.investmentAmount),
-    formatMoney(row.reserveAmount),
+    row.reserveAmount == null ? "" : formatMoney(row.reserveAmount),
+    ...(row.bulatSavings == null ? [] : [formatMoney(row.bulatSavings), formatMoney(row.dianaSavings)]),
     formatMoney(row.creditCardDebt),
     row.rentPaid
   ];
@@ -898,14 +904,6 @@ function normalizeMoneyTableHeaders(headers) {
   return nextHeaders;
 }
 
-function normalizeMoneyTableCells(cells, headers) {
-  if (findColumn(headers, "Инвестиции") !== -1) return cells;
-  const freeColumn = findColumn(headers, "Свободная сумма");
-  const nextCells = [...cells];
-  nextCells.splice(freeColumn === -1 ? 3 : freeColumn + 1, 0, "");
-  return nextCells;
-}
-
 function separatorCells(widths) {
   return widths.map((width) => "-".repeat(Math.max(2, width)));
 }
@@ -917,39 +915,36 @@ function renderTableRow(cells, widths) {
 function updateMoneyText(text, row) {
   const context = readMoneyContext(text);
   const originalHeaders = context.table.headers;
-  const headers = normalizeMoneyTableHeaders(originalHeaders);
-  const cells = tableRowCells(row);
-  const widths = headers.map((header, index) => Math.max(header.length, cells[index]?.length || 0));
-
-  for (let lineIndex = context.table.start; lineIndex < context.table.end; lineIndex += 1) {
-    const existingCells = normalizeMoneyTableCells(parseMarkdownTableLine(context.lines[lineIndex]), originalHeaders);
-    existingCells.forEach((cell, index) => {
-      widths[index] = Math.max(widths[index] || 0, cell.length);
-    });
+  const headers = [...normalizeMoneyTableHeaders(originalHeaders)];
+  if (context.savingsPlan) for (const column of savingsColumns) {
+    if (!headers.includes(column)) headers.splice(findColumn(headers, "Долг по кредиткам"), 0, column);
   }
-
-  const rendered = renderTableRow(cells, widths);
-  context.lines[context.table.start] = renderTableRow(headers, widths);
-  context.lines[context.table.start + 1] = renderTableRow(separatorCells(widths), widths);
-
-  for (let lineIndex = context.table.start + 2; lineIndex < context.table.end; lineIndex += 1) {
-    const existingCells = parseMarkdownTableLine(context.lines[lineIndex]);
-    if (existingCells.length === 0 || isMarkdownSeparator(existingCells)) continue;
-    context.lines[lineIndex] = renderTableRow(normalizeMoneyTableCells(existingCells, originalHeaders), widths);
+  const values = {
+    "Дата": row.date, "Общая сумма": row.totalAmount, "Свободная сумма": row.freeAmount,
+    "Инвестиции": row.investmentAmount, "Несгораемая сумма": row.reserveAmount,
+    "Накопления Булата": row.bulatSavings, "Накопления Дианы": row.dianaSavings,
+    "Долг по кредиткам": row.creditCardDebt, "Аренда заплачена": row.rentPaid
+  };
+  const cells = headers.map(header => {
+    const key = Object.keys(values).find(key => header.includes(key));
+    if (!key) return context.records.find(record => record.dateIso === row.dateIso)?.cells[originalHeaders.indexOf(header)] ?? "";
+    const value = values[key];
+    return value == null ? "" : typeof value === "number" ? formatMoney(value) : value;
+  });
+  const existingRows = context.lines.slice(context.table.start + 2, context.table.end).map(line => {
+    const old = parseMarkdownTableLine(line);
+    return headers.map(header => old[originalHeaders.indexOf(header)] ?? "");
+  });
+  const existingIndex = context.records.find(record => record.dateIso === row.dateIso)?.lineIndex;
+  if (existingIndex !== undefined) existingRows[existingIndex - context.table.start - 2] = cells;
+  else {
+    const index = existingRows.findIndex(cells => cells.every(cell => !cell));
+    existingRows.splice(index < 0 ? existingRows.length : index, 0, cells);
   }
-
-  const existingRecord = context.records.find((record) => record.dateIso === row.dateIso);
-
-  if (existingRecord) {
-    context.lines[existingRecord.lineIndex] = rendered;
-    return context.lines.join("\n");
-  }
-
-  const blankRowIndex = context.lines
-    .slice(context.table.start + 2, context.table.end)
-    .findIndex((line) => parseMarkdownTableLine(line).every((cell) => cell === ""));
-  const insertAt = blankRowIndex === -1 ? context.table.end : context.table.start + 2 + blankRowIndex;
-  context.lines.splice(insertAt, 0, rendered);
+  const widths = headers.map((h,i) => Math.max(h.length, ...existingRows.map(row => String(row[i]).length)));
+  context.lines.splice(context.table.start, context.table.end - context.table.start,
+    renderTableRow(headers,widths), renderTableRow(separatorCells(widths),widths),
+    ...existingRows.map(row => renderTableRow(row,widths)));
   return context.lines.join("\n");
 }
 

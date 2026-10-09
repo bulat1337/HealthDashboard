@@ -1,0 +1,15 @@
+export type SavingsParticipant = {id: 'bulat' | 'diana'; name: string; income: number; monthlySavings: number; baseSavings: number; paydays: number[]};
+export type SavingsEvent = {dateIso: string; participantId: 'bulat' | 'diana'; income: number | null; rule: string; savingsAmount: number; transition?: boolean};
+export type SavingsPlan = {startDate: string; participants: SavingsParticipant[]; exceptions: SavingsEvent[]};
+export type SavingsOverview = SavingsPlan & {bulatSavings: number; dianaSavings: number; monthlyIncome: number; monthlySavings: number};
+export type MoneyManualAdjustments = {version: 1; savings: {participantId: 'bulat' | 'diana'; dateIso: string; amount: number; handledDates: string[]}[]; rent: {dateIso: string; rentPaid: boolean | null}[]};
+export type SavingsRecord = {dateIso: string; bulatSavings: number | null; dianaSavings: number | null};
+export const savingsColumns: string[];
+export function roundMoney(value: number): number;
+export function readSavingsPlan(text: string): SavingsPlan | null;
+export function readMoneyManualAdjustments(text: string): MoneyManualAdjustments;
+export function recordMoneyManualChanges(text: string, plan: SavingsPlan | null, original: SavingsRecord & {rentPaid: boolean | null}, update: Partial<SavingsRecord & {rentPaid: boolean | null}>): string;
+export function moneyRentPaid(adjustments: MoneyManualAdjustments, targetDate: string): boolean;
+export function calculateSavings(plan: SavingsPlan, records: SavingsRecord[], targetDate: string, adjustments?: MoneyManualAdjustments): {bulatSavings: number; dianaSavings: number};
+export function savingsOverview(plan: SavingsPlan, records: SavingsRecord[], today: string, adjustments?: MoneyManualAdjustments): SavingsOverview;
+export function savingsEvents(plan: SavingsPlan, throughDate: string): SavingsEvent[];

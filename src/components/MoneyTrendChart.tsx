@@ -8,6 +8,8 @@ type MoneySeriesKey =
   | "freeAmount"
   | "investmentAmount"
   | "reserveAmount"
+  | "bulatSavings"
+  | "dianaSavings"
   | "creditCardDebt";
 
 type MoneySeries = {
@@ -32,9 +34,11 @@ const MARGIN = { top: 18, right: 22, bottom: 42, left: 72 };
 
 const MONEY_SERIES: MoneySeries[] = [
   { key: "totalAmount", label: "Общая", color: "#1e40af" },
-  { key: "freeAmount", label: "Свободная", color: "#15803d" },
+  { key: "freeAmount", label: "Общий бюджет", color: "#15803d" },
   { key: "investmentAmount", label: "Инвестиции", color: "#0f766e" },
-  { key: "reserveAmount", label: "Несгораемая", color: "#f59e0b" },
+  { key: "reserveAmount", label: "Несгораемая сумма", color: "#f59e0b" },
+  { key: "bulatSavings", label: "Булат", color: "#b45309" },
+  { key: "dianaSavings", label: "Диана", color: "#eab308" },
   { key: "creditCardDebt", label: "Долг", color: "#dc2626", dash: "6 5" },
 ];
 
@@ -307,7 +311,7 @@ export function MoneyTrendChart({
           }}
         >
           <strong>{formatDateShort(hover.record.dateIso)}</strong>
-          {MONEY_SERIES.map((series) => (
+          {MONEY_SERIES.filter(series => moneyValue(hover.record, series.key) !== null).map((series) => (
             <span key={series.key}>
               <i style={{ background: series.color }} /> {series.label}:{" "}
               {formatNumber(moneyValue(hover.record, series.key), 0)} ₽
