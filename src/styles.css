@@ -3055,3 +3055,279 @@ select {
 @media (max-width: 760px) {
   .money-table td[data-empty="true"] { display: none; }
 }
+
+/* Health sources share one person selector and retain independent histories. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.health-view-control { flex-shrink: 0; }
+.health-body-heading,
+.fitbit-day-toolbar,
+.fitbit-date-control,
+.fitbit-connect-copy,
+.fitbit-connect-features > span {
+  display: flex;
+  align-items: center;
+}
+.health-body-heading { justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.health-body-heading h3 { margin: 0 0 4px; color: var(--ink-blue); font-size: 18px; }
+.health-body-heading > div > span { color: var(--muted); font-size: 13px; }
+.fitbit-dashboard { min-width: 0; }
+.fitbit-detail-grid .panel-heading > svg,
+.fitbit-workouts .panel-heading > svg { color: var(--primary); flex-shrink: 0; }
+.fitbit-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--primary); border-radius: 8px; background: var(--primary); color: white; font-weight: 500; transition: background-color 160ms ease; }
+.fitbit-button:hover { background: var(--ink-blue); }
+.fitbit-button:disabled { cursor: default; background: var(--surface-soft); border-color: var(--line); color: var(--muted); }
+.fitbit-connect-panel { padding: 28px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; }
+.fitbit-connect-copy { gap: 18px; }
+.fitbit-watch-mark { display: grid; place-items: center; width: 62px; height: 72px; flex-shrink: 0; color: var(--primary); background: var(--surface-soft); border-radius: 8px; }
+.fitbit-connect-copy h3 { font-size: 22px; margin: 0 0 8px; letter-spacing: -0.02em; }
+.fitbit-connect-action { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 8px; max-width: 250px; }
+.fitbit-connect-action > span { font-size: 12px; line-height: 1.5; text-align: right; color: var(--muted); }
+.fitbit-connect-features { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--line); padding: 20px 0; gap: 16px; }
+.fitbit-connect-features > span { gap: 9px; font-size: 14px; color: var(--ink-blue); }
+.fitbit-connect-features svg { flex-shrink: 0; }
+.fitbit-notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 8px; color: var(--ink); font-size: 14px; line-height: 1.5; }
+.fitbit-notice > svg { flex-shrink: 0; }
+.fitbit-notice > span { flex: 1 1 220px; }
+.fitbit-notice button,
+.fitbit-text-button { min-height: 44px; color: var(--primary); background: transparent; border: 0; padding: 8px; font-weight: 500; }
+.fitbit-notice button:hover,
+.fitbit-text-button:hover { text-decoration: underline; }
+.fitbit-loading { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 48px 20px; color: var(--muted); }
+.fitbit-day-toolbar { gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.fitbit-date-control { gap: 6px; }
+.fitbit-date-control label { min-width: 0; }
+.fitbit-date-control input { color-scheme: light; font: inherit; font-size: 15px; min-width: 0; width: 160px; min-height: 44px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.fitbit-date-control input:focus-visible { outline: 3px solid rgba(245, 158, 11, 0.42); outline-offset: 2px; }
+.fitbit-date-control button:disabled { cursor: default; opacity: .45; }
+.fitbit-day-label { color: var(--muted); font-size: 14px; }
+.fitbit-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.fitbit-metric { min-height: 108px; }
+.fitbit-metric > strong { font-size: 30px; }
+.fitbit-detail-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; gap: 18px; }
+.fitbit-detail-grid > .panel,
+.fitbit-workouts { min-width: 0; padding: 20px; }
+.fitbit-dashboard .panel-heading { align-items: center; gap: 12px; margin-bottom: 16px; }
+.fitbit-dashboard .panel-heading h3 { color: var(--ink-blue); font-size: 18px; font-weight: 600; margin: 0; }
+.fitbit-dashboard .panel-heading > div > span { display: block; margin-top: 5px; }
+.fitbit-range { padding: 3px; gap: 2px; border: 0; background: var(--bg); flex-shrink: 0; }
+.fitbit-range button { min-height: 38px; padding-inline: 10px; font-size: 13px; white-space: nowrap; }
+.fitbit-range button.active { box-shadow: none; }
+.fitbit-trend { position: relative; height: 226px; margin-top: 10px; padding-left: 48px; }
+.fitbit-chart-axis { position: absolute; inset: 0 auto 29px 0; width: 42px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.fitbit-chart-bars { display: grid; height: 100%; gap: 8px; }
+.fitbit-chart-day { border: 0; background: transparent; color: var(--muted); padding: 0; display: grid; grid-template-rows: minmax(0, 1fr) 28px; gap: 4px; min-width: 0; }
+.fitbit-bar-track { display: flex; position: relative; align-items: end; justify-content: center; border-bottom: 1px solid var(--line); background: var(--surface-tint); border-radius: 4px 4px 0 0; }
+.fitbit-bar { display: block; width: 70%; max-width: 44px; min-height: 0; background: var(--primary-soft); border-radius: 3px 3px 0 0; }
+.fitbit-chart-day:hover .fitbit-bar,
+.fitbit-chart-day:focus-visible .fitbit-bar { background: var(--primary-2); }
+.fitbit-chart-day.selected .fitbit-bar { background: var(--primary); }
+.fitbit-chart-day.selected .fitbit-bar-track { border-bottom: 3px solid var(--amber); }
+.fitbit-bar-date { display: grid; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.fitbit-chart-day.selected .fitbit-bar-date { color: var(--primary); font-weight: 600; }
+.fitbit-chart-day.missing .fitbit-bar-track { background: transparent; border-bottom-style: dashed; }
+.fitbit-trend.dense .fitbit-chart-bars { gap: 3px; }
+.fitbit-trend.dense .fitbit-bar { width: 100%; }
+.fitbit-chart-empty { display: flex; min-height: 225px; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; color: var(--muted); }
+.fitbit-chart-empty p { margin: 0; color: var(--ink); font-size: 15px; }
+.fitbit-sleep-total { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+.fitbit-sleep-total strong { color: var(--ink-blue); font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fitbit-sleep-total > span { color: var(--muted); font-size: 13px; }
+.fitbit-sleep-stages { display: flex; height: 12px; gap: 2px; overflow: hidden; border-radius: 3px; margin: 0 0 12px; }
+.fitbit-sleep-stages > span { flex-basis: 0; }
+.stage-deep { background: var(--primary); }
+.stage-light { background: #93bafa; }
+.stage-rem { background: var(--primary-2); }
+.stage-awake { background: var(--amber); }
+.stage-asleep { background: var(--primary-2); }
+.stage-restless { background: #a8b3c3; }
+.fitbit-stage-list,
+.fitbit-detail-list { margin: 0; }
+.fitbit-stage-list > div,
+.fitbit-detail-list > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fitbit-stage-list > div:last-child,
+.fitbit-detail-list > div:last-child { border-bottom: 0; }
+.fitbit-stage-list dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.fitbit-stage-list dt i { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.fitbit-stage-list dd,
+.fitbit-detail-list dd { margin: 0; text-align: right; font-weight: 500; font-size: 14px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.fitbit-detail-list dt { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.fitbit-subtle,
+.fitbit-panel-empty { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 14px 0 0; }
+.fitbit-panel-empty { font-size: 14px; max-width: 55ch; margin: 0; }
+.fitbit-workouts { margin-top: 18px; }
+.fitbit-workouts ul { margin: 0; padding: 0; list-style: none; }
+.fitbit-workouts li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, .5fr) minmax(100px, .5fr); gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 14px; font-variant-numeric: tabular-nums; }
+.fitbit-workouts li:last-child { border-bottom: 0; padding-bottom: 0; }
+.fitbit-workouts li > span:last-child { text-align: right; }
+.fitbit-workouts strong { font-weight: 500; }
+.fitbit-workouts small { display: block; color: var(--muted); margin-top: 5px; font-size: 12px; }
+
+@media (max-width: 960px) {
+  .fitbit-connect-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fitbit-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fitbit-trend-panel { grid-column: 1 / -1; }
+  .fitbit-sleep-panel { grid-row: span 2; }
+}
+@media (max-width: 760px) {
+  .health-view-control { width: 100%; }
+  .health-view-control button { flex: 1; justify-content: center; }
+  .health-body-heading { align-items: stretch; flex-direction: column; gap: 12px; }
+  .fitbit-connect-panel { grid-template-columns: 1fr; gap: 20px; padding: 20px; }
+  .fitbit-connect-copy { align-items: flex-start; gap: 12px; }
+  .fitbit-watch-mark { width: 42px; height: 50px; }
+  .fitbit-watch-mark > svg { width: 25px; }
+  .fitbit-connect-copy h3 { font-size: 20px; margin-bottom: 6px; }
+  .fitbit-connect-action { max-width: none; align-items: stretch; }
+  .fitbit-connect-action > span { text-align: center; }
+  .fitbit-connect-features { gap: 18px 12px; padding-block: 18px; }
+  .fitbit-connect-features > span { align-items: flex-start; font-size: 13px; line-height: 1.5; gap: 7px; }
+  .fitbit-connect-features svg { margin-top: 1px; width: 16px; }
+  .fitbit-day-toolbar { gap: 6px 10px; }
+  .fitbit-date-control { flex: 1; }
+  .fitbit-date-control label { flex: 1; }
+  .fitbit-date-control input { width: 100%; font-size: 16px; }
+  .fitbit-day-label { font-size: 12px; }
+  .fitbit-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .fitbit-metric { min-height: 108px; padding: 13px; }
+  .fitbit-metric .tile-label { font-size: 13px; }
+  .fitbit-metric > strong { font-size: 25px; line-height: 1.25; }
+  .fitbit-metric > small { font-size: 12px; }
+  .fitbit-detail-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .fitbit-sleep-panel { grid-row: auto; }
+  .fitbit-detail-grid > .panel,
+  .fitbit-workouts { padding: 16px; }
+  .fitbit-dashboard .panel-heading h3 { font-size: 18px; }
+  .fitbit-dashboard .panel-heading > div > span { font-size: 12px; }
+  .fitbit-range button { min-height: 44px; padding-inline: 8px; }
+  .fitbit-trend { height: 205px; padding-left: 36px; }
+  .fitbit-chart-axis { width: 32px; font-size: 10px; }
+  .fitbit-chart-bars { gap: 6px; }
+  .fitbit-trend.dense .fitbit-chart-bars { gap: 2px; }
+  .fitbit-workouts { margin-top: 14px; }
+  .fitbit-workouts li { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; }
+  .fitbit-workouts li > span:nth-child(2) { text-align: right; }
+  .fitbit-workouts li > span:last-child { grid-column: 1 / -1; text-align: left; display: flex; gap: 12px; align-items: baseline; }
+  .fitbit-workouts li > span:last-child small { margin: 0; }
+}
+
+/* Fitbit sessions share the calendar while keeping their source visible. */
+.sport-day-top { display: flex; align-items: center; justify-content: space-between; gap: 2px; min-width: 0; }
+.sport-fitbit-mark { flex-shrink: 0; color: var(--primary); }
+.sport-day-button.has-fitbit { border-style: dashed; border-color: var(--primary-soft); }
+.sport-day-button.has-fitbit.selected { border-color: var(--primary); }
+.sport-fitbit-workouts { display: grid; gap: 10px; margin-bottom: 18px; min-width: 0; }
+.sport-fitbit-workout { border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-soft); min-width: 0; }
+.sport-fitbit-summary { display: flex; align-items: center; gap: 8px; padding: 12px; min-height: 64px; cursor: pointer; list-style: none; color: var(--ink-blue); }
+.sport-fitbit-summary::-webkit-details-marker { display: none; }
+.sport-fitbit-summary:hover { background: var(--surface-tint); border-radius: 8px; }
+.sport-fitbit-summary > svg { flex-shrink: 0; }
+.sport-fitbit-title { flex: 1; min-width: 0; }
+.sport-fitbit-title strong { display: block; font-size: 14px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere; }
+.sport-fitbit-title small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.sport-fitbit-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--primary); white-space: nowrap; }
+.sport-fitbit-workout[open] > summary .sport-fitbit-chevron { transform: rotate(180deg); }
+.sport-fitbit-content { border-top: 1px solid var(--line); padding: 12px; }
+.sport-fitbit-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 10px; overflow-wrap: anywhere; }
+.sport-fitbit-fields { margin: 0; font-size: 13px; line-height: 1.5; }
+.sport-fitbit-fields > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.sport-fitbit-fields > div:last-child { border-bottom: 0; }
+.sport-fitbit-fields dt { color: var(--muted); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sport-fitbit-fields dd { margin: 0; flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.sport-fitbit-fields details { width: 100%; min-width: 0; }
+.sport-fitbit-fields details > .sport-fitbit-fields { padding-left: 8px; }
+.sport-fitbit-fields summary, .sport-fitbit-all > summary { cursor: pointer; padding-block: 5px; color: var(--primary); overflow-wrap: anywhere; min-height: 34px; }
+.sport-fitbit-all { margin-top: 10px; }
+.sport-fitbit-all > summary { font-size: 13px; min-height: 44px; display: list-item; align-content: center; }
+.sport-fitbit-workout summary:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+@media (max-width: 760px) {
+  .sport-fitbit-fields summary { min-height: 44px; align-content: center; }
+  .sport-day-top { gap: 0; }
+  .sport-fitbit-mark { width: 11px; }
+}
+
+/* Fitbit detail charts use the source's time intervals and zone thresholds. */
+.fitbit-dashboard {
+  --sleep-awake: #d95d91;
+  --sleep-light: #78a4f2;
+  --sleep-deep: #9363c7;
+  --sleep-rem: #85d1eb;
+  --sleep-restless: #3ba76a;
+}
+.fitbit-sleep-details { grid-column: 2; grid-row: 1 / span 4; }
+.fitbit-heart-panel { grid-column: 1; }
+.fitbit-sleep-week { grid-column: 1 / -1; width: 100%; max-width: 230px; margin-top: 12px; }
+.metric-tile .fitbit-sleep-week svg { width: 100%; height: 56px; display: block; padding: 0; box-sizing: border-box; background: transparent; border-radius: 0; }
+.fitbit-sleep-week > div { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.fitbit-sleep-week .selected { color: var(--primary); font-weight: 700; }
+.fitbit-sleep-timeline { margin-top: 24px; }
+.fitbit-sleep-row { margin-bottom: 19px; }
+.fitbit-sleep-row-label { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 7px; font-size: 14px; line-height: 1.4; }
+.fitbit-sleep-row-label strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+.fitbit-sleep-track { position: relative; height: 27px; border-radius: 16px; background: var(--bg); }
+.fitbit-sleep-segment { position: absolute; top: -7px; height: 41px; min-width: 2px; border: 0; padding: 7px 0; background-clip: content-box; border-radius: 20px; transition: filter 150ms ease; }
+.fitbit-sleep-segment:hover { filter: brightness(.85); }
+.fitbit-sleep-segment:focus-visible { z-index: 2; outline: 2px solid var(--ink); outline-offset: 2px; }
+.fitbit-dashboard .stage-awake { background-color: var(--sleep-awake); }
+.fitbit-dashboard .stage-rem { background-color: var(--sleep-rem); }
+.fitbit-dashboard .stage-light, .fitbit-dashboard .stage-asleep { background-color: var(--sleep-light); }
+.fitbit-dashboard .stage-deep { background-color: var(--sleep-deep); }
+.fitbit-dashboard .stage-restless, .fitbit-dashboard .stage-short { background-color: var(--sleep-restless); }
+.fitbit-sleep-clock { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-variant-numeric: tabular-nums; margin-top: 13px; }
+.fitbit-sleep-endpoints { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 5px; }
+.fitbit-sleep-selection { font-size: 12px; color: var(--muted); min-height: 32px; line-height: 1.5; margin: 14px 0 0; }
+.fitbit-sleep-quality { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 22px; }
+.fitbit-sleep-quality h4 { margin: 0; font-size: 17px; font-weight: 500; }
+.fitbit-sleep-quality > .fitbit-subtle { margin-top: 7px; }
+.fitbit-quality-row { margin-top: 23px; }
+.fitbit-quality-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; line-height: 1.45; }
+.fitbit-quality-label strong { display: block; font-weight: 500; margin-top: 4px; }
+.fitbit-quality-label small { color: #166534; background: #e8f5ec; border-radius: 8px; padding: 5px 8px; font-size: 11px; max-width: 130px; text-align: center; }
+.fitbit-quality-row.outside .fitbit-quality-label small { background: #fff3d8; color: #854d0e; }
+.fitbit-quality-track { position: relative; height: 25px; margin: 14px 10px 10px; background: var(--bg); border-radius: 20px; }
+.fitbit-quality-fill { position: absolute; inset: 0 auto 0 0; width: var(--quality-value); border-radius: inherit; background: #54ba79; }
+.fitbit-quality-row.outside .fitbit-quality-fill { background: var(--amber); }
+.fitbit-quality-row.no-history .fitbit-quality-fill { background: var(--primary-2); }
+.fitbit-quality-range { position: absolute; top: -4px; bottom: -4px; min-width: 12px; border: 1px dashed var(--muted); background: rgba(21, 128, 61, .06); border-radius: 20px; }
+.fitbit-quality-marker { position: absolute; top: 50%; left: var(--quality-value); width: 23px; height: 23px; transform: translate(-50%, -50%); border: 3px solid var(--ink); background: var(--surface); border-radius: 50%; }
+.fitbit-quality-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.fitbit-range-explanation { margin-top: 23px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.fitbit-range-explanation summary { color: var(--primary); cursor: pointer; min-height: 44px; align-content: center; }
+.fitbit-range-explanation p { margin: 4px 0 0; }
+.fitbit-heart-summary { display: grid; gap: 6px; }
+.fitbit-heart-summary > strong { font-size: clamp(28px, 4vw, 40px); font-weight: 500; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.fitbit-heart-summary > strong span { font-size: 14px; font-weight: 400; }
+.fitbit-heart-summary > span { color: var(--muted); font-size: 13px; }
+.fitbit-heart-chart { width: 100%; min-width: 0; margin-top: 18px; }
+.fitbit-heart-chart svg { display: block; width: 100%; overflow: visible; touch-action: pan-y; }
+.fitbit-heart-axis { font-family: inherit; font-size: 11px; fill: var(--muted); }
+.fitbit-heart-inspect { display: grid; grid-template-columns: auto minmax(70px, 1fr); gap: 15px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); margin-top: 8px; }
+.fitbit-heart-inspect input { width: 100%; min-width: 0; min-height: 44px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+.fitbit-heart-legend { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.fitbit-heart-legend li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.fitbit-heart-legend i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.fitbit-heart-legend li > span { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; font-size: 11px; }
+@media (max-width: 960px) {
+  .fitbit-sleep-details { grid-column: 2; grid-row: 2 / span 3; }
+}
+@media (max-width: 760px) {
+  .fitbit-sleep-details, .fitbit-heart-panel { grid-column: 1; grid-row: auto; }
+  .fitbit-sleep-details { order: 1; }
+  .fitbit-heart-panel { order: 2; }
+  .fitbit-detail-panel { order: 3; }
+  .fitbit-sleep-week { margin-top: 8px; }
+  .metric-tile .fitbit-sleep-week svg { height: 48px; }
+  .fitbit-sleep-row-label { font-size: 13px; }
+  .fitbit-quality-label { flex-wrap: wrap; }
+  .fitbit-quality-label small { max-width: none; }
+  .fitbit-heart-legend { gap: 10px; }
+  .fitbit-heart-legend li { flex-wrap: wrap; }
+  .fitbit-heart-legend li > span { margin-left: 12px; }
+}

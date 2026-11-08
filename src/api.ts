@@ -5,6 +5,29 @@ import type {
   SportDataResponse,
   SportMaxReps
 } from "./types";
+import type { FitbitDataResponse } from "./fitbit-types";
+
+async function fitbitRequest(url: string, method: "GET" | "POST", signal?: AbortSignal) {
+  const response = await fetch(url, { method, signal });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(error.error || "Не удалось загрузить Fitbit. Попробуйте ещё раз.");
+  }
+  return response;
+}
+
+export async function fetchFitbitData(signal?: AbortSignal): Promise<FitbitDataResponse> {
+  return (await fitbitRequest("/api/fitbit-data", "GET", signal)).json();
+}
+
+export async function refreshFitbitData(userId: string): Promise<FitbitDataResponse> {
+  return (await fitbitRequest(`/api/fitbit/${encodeURIComponent(userId)}/refresh`, "POST")).json();
+}
+
+export async function connectFitbit(userId: string): Promise<string> {
+  const result = await (await fitbitRequest(`/api/fitbit/${encodeURIComponent(userId)}/connect`, "POST")).json() as { url: string };
+  return result.url;
+}
 
 export async function fetchHealthData(signal?: AbortSignal): Promise<HealthDataResponse> {
   const response = await fetch("/api/health-data", { signal });

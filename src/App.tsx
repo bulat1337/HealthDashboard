@@ -13,11 +13,13 @@ import {
   SlidersHorizontal,
   Users,
   Wallet,
+  Watch,
   Waves
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchHealthData, openHealthSocket, refreshMoneyData } from "./api";
+import { fetchFitbitData, fetchHealthData, openHealthSocket, refreshFitbitData, refreshMoneyData } from "./api";
 import { HealthChart } from "./components/HealthChart";
+import { FitbitDashboard } from "./components/FitbitDashboard";
 import { MoneyDashboard } from "./components/MoneyDashboard";
 import { RelationshipDashboard } from "./components/RelationshipDashboard";
 import { SportDashboard } from "./components/SportDashboard";
@@ -87,6 +89,7 @@ function isDomain(value: string | null): value is Domain {
 }
 
 function getInitialActiveDomain(): Domain {
+  if (new URLSearchParams(window.location.search).has("fitbit")) return "health";
   try {
     const storedDomain = window.localStorage.getItem(ACTIVE_DOMAIN_STORAGE_KEY);
     return isDomain(storedDomain) ? storedDomain : "health";
@@ -96,6 +99,8 @@ function getInitialActiveDomain(): Domain {
 }
 
 function getInitialSelectedUser() {
+  const connectedUser = new URLSearchParams(window.location.search).get("fitbitUser");
+  if (connectedUser) return connectedUser;
   try {
     return window.localStorage.getItem(SELECTED_USER_STORAGE_KEY) || "";
   } catch {
@@ -246,6 +251,8 @@ function App() {
   const [today, setToday] = useState(() => new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sportRefreshKey, setSportRefreshKey] = useState(0);
+  const [fitbitRefreshKey, setFitbitRefreshKey] = useState(0);
+  const [healthView, setHealthView] = useState<"overview" | "body">("overview");
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [selectedMeasurementId, setSelectedMeasurementId] = useState<number | null>(null);
   const measurementPanelRef = useRef<HTMLElement>(null);
@@ -282,6 +289,12 @@ function App() {
       if (activeDomain === "sport") {
         setSportRefreshKey((current) => current + 1);
       }
+      if (activeDomain === "health" && healthView === "overview") {
+        const fitbit = await fetchFitbitData();
+        const profile = fitbit.profiles.find((entry) => entry.userId === selectedUser);
+        if (profile?.canConnect && ["connected", "error"].includes(profile.status) && profile.lastAttemptAt) await refreshFitbitData(selectedUser);
+        setFitbitRefreshKey((current) => current + 1);
+      }
       await load();
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
@@ -315,6 +328,7 @@ function App() {
         if (event.type === "connected") {
           setSocketConnected(true);
           setSportRefreshKey((current) => current + 1);
+          setFitbitRefreshKey((current) => current + 1);
           load().catch((loadError) => setError(String(loadError)));
         }
         if (event.type === "health-data-updated" || event.type === "money-data-updated") {
@@ -326,6 +340,10 @@ function App() {
         if (event.type === "sport-data-updated") {
           setLastEventAt(event.updatedAt ?? new Date().toISOString());
           setSportRefreshKey((current) => current + 1);
+        }
+        if (event.type === "fitbit-data-updated") {
+          setLastEventAt(event.updatedAt ?? new Date().toISOString());
+          setFitbitRefreshKey((current) => current + 1);
         }
         if (event.type === "health-data-error" || event.type === "money-data-error") {
           setError("Ошибка чтения обновленных данных");
@@ -343,6 +361,7 @@ function App() {
       if (document.visibilityState !== "visible") return;
       load().catch((loadError) => setError(String(loadError)));
       setSportRefreshKey((current) => current + 1);
+      setFitbitRefreshKey((current) => current + 1);
     }
     document.addEventListener("visibilitychange", onVisible);
     connect();
@@ -552,7 +571,7 @@ function App() {
         <RelationshipDashboard today={today} />
       ) : activeDomain === "sport" ? (
         <SportDashboard today={today} refreshKey={sportRefreshKey} />
-      ) : selectedMetricInfo ? (
+      ) : (
         <>
       <section className="control-band">
         <div className="segmented users-control" aria-label="Пользователь">
@@ -570,6 +589,20 @@ function App() {
           ))}
         </div>
 
+        <div className="segmented health-view-control" aria-label="Данные здоровья">
+          <button type="button" className={healthView === "overview" ? "active" : ""} aria-pressed={healthView === "overview"}
+            onClick={() => setHealthView("overview")}><Watch size={17} />Обзор</button>
+          <button type="button" className={healthView === "body" ? "active" : ""} aria-pressed={healthView === "body"}
+            onClick={() => setHealthView("body")}><Scale size={17} />Состав тела</button>
+        </div>
+      </section>
+
+      {healthView === "overview" ? (
+        <FitbitDashboard key={selectedUser} userId={selectedUser} name={data.users.find((user) => user.id === selectedUser)?.name ?? selectedUser} refreshKey={fitbitRefreshKey} />
+      ) : selectedMetricInfo ? (
+        <>
+      <div className="health-body-heading">
+        <div><h3>Состав тела</h3><span>Xiaomi Body Scale · {selectedUser}</span></div>
         <label className="select-control">
           <SlidersHorizontal size={17} />
           <select aria-label="Показатель на графике" value={selectedMetric} onChange={(event) => setSelectedMetric(event.target.value)}>
@@ -581,7 +614,7 @@ function App() {
             ))}
           </select>
         </label>
-      </section>
+      </div>
 
       <section className="quick-metrics" aria-label="Быстрые метрики">
         {quickMetrics.map((metric) => {
@@ -708,6 +741,8 @@ function App() {
             <p>Источник прочитан, каталог метрик пустой.</p>
           </div>
         </section>
+      )}
+        </>
       )}
     </main>
   );

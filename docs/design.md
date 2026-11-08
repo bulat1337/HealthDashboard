@@ -25,6 +25,18 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   intercept clicks. Money points retain keyboard selection.
 - Show six fields of the selected health measurement initially. A labeled
   disclosure reveals every remaining field without changing values.
+- Health shares one person selector across «Обзор» (Fitbit Air) and «Состав
+  тела» (Xiaomi). Fitbit keeps each account separate, shows daily records and
+  7/30-day selectable charts, and retains missing values as gaps. Sleep belongs
+  to the local waking date. Sleep stages use source intervals on separate colored
+  tracks; older summary-only caches show durations. Intraday heart rate uses
+  minute means and min/max envelopes, source zone thresholds and visible data gaps.
+  Sleep quality gauges compare with the central 80% of the user's previous
+  30 days (at least seven nights), with explicit labels for missing history.
+  Google Health sleep scores and clinical reference ranges are not inferred.
+  Show an account connection state before authorization and preserve cached
+  records with explicit feedback when an update fails. Technical configuration
+  stays in the integration documentation.
 - Money shows the shared budget, two personal savings balances, the trend chart, snapshot composition and editable history. Contributions follow Money.md automatically, with one skipped Diana contribution on 15 October 2026 and a manual snapshot correction that day. The historical chart retains the original «Несгораемая сумма» series and its values. Total credit-card debt comes from ZenMoney, including Diana’s cards.
 - Money history retains one data/editing path: desktop table, labeled mobile
   record cards. Inputs and actions remain reachable without horizontal scrolling.
@@ -40,6 +52,10 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   Weekly streak days are real date shortcuts. Calendars use only the weeks
   occupied by the selected month. Icons and additional-activity counts replace
   the unbounded legend; repeated summaries and empty-day badges are omitted.
+  Fitbit sessions use a small watch mark and dashed border; clicking a session
+  reveals its metrics, with laps, events and all returned source fields behind
+  disclosures. Manual entries remain independently editable. Walking is excluded;
+  legacy walking marks become 3.14 km runs with a backup of the original file.
 - Relationship headings use Fira Sans. Backend setup details stay outside the
   money dashboard; operational errors still use the normal error feedback.
 - Use 44px action targets where possible, 16px mobile inputs, visible focus and

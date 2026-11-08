@@ -21,7 +21,8 @@ async function startMoneyServer(t: TestContext, text: string) {
     HEALTH_DATA_DIR:dir,HEALTH_DATA_FILE:path.join(dir,"health.json"),SPORT_DATA_FILE:path.join(dir,"sport.json")},stdio:"ignore"});
   t.after(()=>{proc.kill();fs.rmSync(dir,{recursive:true,force:true});});
   const base=`http://127.0.0.1:${port}`;
-  for (let i=0;i<100;i++) {try{await fetch(base+"/api/status");break;}catch{await new Promise(resolve=>setTimeout(resolve,50));}}
+  // Wait for actual readiness, including a cold TypeScript/module load.
+  for (let i=0;i<300;i++) {try{await fetch(base+"/api/status");break;}catch{await new Promise(resolve=>setTimeout(resolve,50));}}
   const get=async()=> (await (await fetch(base+"/api/health-data")).json()).data.money;
   const patch=async(endpoint:string,body:unknown)=>{
     const response=await fetch(base+"/api/money-data/"+endpoint,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});

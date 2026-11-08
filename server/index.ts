@@ -12,6 +12,10 @@ import os from "node:os";
 import { atomicWrite } from "./atomic-write.js";
 import { readSavingsPlan, savingsOverview, readMoneyManualAdjustments, recordMoneyManualChanges, type SavingsOverview } from "../scripts/money-rules.mjs";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
+import { createFitbitIntegration } from "./fitbit.js";
+import { mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "./sport-fitbit.js";
+import type { SportActivityKey, SportActivityCatalogEntry, SportMaxReps, SportEntry, SportUser, SportData } from "../src/types.js";
+import type { FitbitExercise } from "../src/fitbit-types.js";
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -297,54 +301,6 @@ type MoneyData = {
   summary: MoneySummary;
 };
 
-type SportActivityKey =
-  | "run"
-  | "walking"
-  | "pilates"
-  | "yoga"
-  | "strength_lower"
-  | "strength_upper"
-  | "strength_whole"
-  | "cycling"
-  | "sup"
-  | "pull_ups"
-  | "push_ups";
-
-type SportActivityCatalogEntry = {
-  key: SportActivityKey;
-  label: string;
-  color: string;
-};
-
-type SportMaxReps = {
-  pullUps: number | null;
-  pushUps: number | null;
-};
-
-type SportEntry = {
-  date: string;
-  sick: boolean;
-  activities: SportActivityKey[];
-  runDistanceKm: number | null;
-  maxReps: SportMaxReps;
-};
-
-type SportUser = {
-  id: string;
-  name: string;
-  activityTypes: SportActivityKey[];
-  entries: SportEntry[];
-};
-
-type SportData = {
-  schemaVersion: number;
-  generatedAt: string;
-  sourceFile: string;
-  sourceMtimeMs: number | null;
-  activityCatalog: SportActivityCatalogEntry[];
-  users: SportUser[];
-};
-
 type SportDayUpdate = {
   userId: string;
   date: string;
@@ -356,7 +312,6 @@ type SportDayUpdate = {
 
 const SPORT_ACTIVITY_CATALOG: SportActivityCatalogEntry[] = [
   { key: "run", label: "Бег", color: "#2563eb" },
-  { key: "walking", label: "Пешая прогулка", color: "#65a30d" },
   { key: "pilates", label: "Пилатес", color: "#db2777" },
   { key: "yoga", label: "Йога", color: "#9333ea" },
   { key: "strength_lower", label: "Силовая · lower body", color: "#f97316" },
@@ -377,7 +332,6 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "strength_upper",
       "strength_whole",
       "run",
-      "walking",
       "pilates",
       "yoga",
       "cycling",
@@ -394,7 +348,6 @@ const SPORT_USERS: Omit<SportUser, "entries">[] = [
       "strength_upper",
       "strength_whole",
       "run",
-      "walking",
       "pilates",
       "yoga",
       "cycling",
@@ -995,7 +948,7 @@ function normalizeSportEntries(rawUser: unknown, allowedActivities: SportActivit
       date,
       ...normalizeSportEntryValue(rawEntry, allowedActivities)
     }))
-    .filter((entry): entry is SportEntry => isDateKey(entry.date) && (entry.activities.length > 0 || entry.sick))
+    .filter((entry) => isDateKey(entry.date) && (entry.activities.length > 0 || entry.sick))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -1026,6 +979,7 @@ function sportMaxRepsFromBody(body: Record<string, unknown>, activities: SportAc
 
 function loadSportRawFile() {
   if (!fs.existsSync(SPORT_FILE)) return { schemaVersion: 1, users: {} };
+  migrateSportWalkingFile(SPORT_FILE);
   return JSON.parse(fs.readFileSync(SPORT_FILE, "utf8")) as unknown;
 }
 
@@ -1044,7 +998,10 @@ function loadSportData(): SportData {
     activityCatalog: SPORT_ACTIVITY_CATALOG,
     users: SPORT_USERS.map((user) => ({
       ...user,
-      entries: normalizeSportEntries(rawUsers[user.id], user.activityTypes)
+      entries: mergeSportFitbitEntries(
+        normalizeSportEntries(rawUsers[user.id], user.activityTypes),
+        readFitbitSportWorkouts(rawUsers[user.id], user.activityTypes)
+      )
     }))
   };
 }
@@ -1982,6 +1939,30 @@ app.use("/api", (request, response, next) => {
 });
 app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
 
+const fitbit = createFitbitIntegration({
+  getUsers: () => { try { return getCachedData()?.users ?? []; } catch { return []; } },
+  onUpdate: () => broadcast({ type: "fitbit-data-updated", updatedAt: new Date().toISOString() }),
+  onExercises: syncFitbitSport
+});
+function syncFitbitSport(userId: string, exercises: FitbitExercise[], window?: { start: string; end: string }) {
+  // Health IDs come from Xiaomi names; sport uses stable slugs. Match the known person exactly.
+  const healthUser = getCachedData()?.users.find((user) => user.id === userId);
+  const user = SPORT_USERS.find((user) => user.id === userId || user.name === userId || user.name === healthUser?.name);
+  if (!user) return;
+  migrateSportWalkingFile(SPORT_FILE);
+  if (syncFitbitSportFile(SPORT_FILE, user.id, exercises, user.activityTypes, window)) {
+    broadcast({ type: "sport-data-updated", updatedAt: new Date().toISOString() });
+  }
+}
+// Backfill existing cached sessions once, and retain calendar history beyond the Fitbit cache horizon.
+try {
+  migrateSportWalkingFile(SPORT_FILE);
+  for (const profile of fitbit.snapshot().profiles) syncFitbitSport(profile.userId, profile.exercises);
+} catch (error) {
+  console.error("Fitbit sport calendar backfill failed:", errorText(error));
+}
+app.use("/api", fitbit.router);
+
 app.get("/api/health-data", (_request, response) => {
   try {
     const data = getCachedData();
@@ -2195,6 +2176,7 @@ app.get("/api/status", (_request, response) => {
     dataFile: publicPath(DATA_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     scale: scaleBridgeStatus(),
+    fitbit: fitbit.snapshot().profiles.map(({ userId, status, lastSyncAt, lastAttemptAt }) => ({ userId, status, lastSyncAt, lastAttemptAt })),
     money: {
       status: money.status,
       sourceFile: publicPath(MONEY_FILE),
@@ -2341,6 +2323,7 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 server.listen(PORT, HOST, () => {
+  fitbit.start();
   const shownHost = HOST === "0.0.0.0" ? "localhost" : HOST;
   console.log(`Life Dashboard: http://${shownHost}:${PORT}`);
   console.log(`Data source: ${publicPath(DATA_FILE)}`);

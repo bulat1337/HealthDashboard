@@ -177,7 +177,6 @@ export type HealthDataResponse = {
 
 export type SportActivityKey =
   | "run"
-  | "walking"
   | "pilates"
   | "yoga"
   | "strength_lower"
@@ -205,6 +204,15 @@ export type SportEntry = {
   activities: SportActivityKey[];
   runDistanceKm: number | null;
   maxReps: SportMaxReps;
+  manualActivities?: SportActivityKey[];
+  manualRunDistanceKm?: number | null;
+  fitbitWorkouts?: SportFitbitWorkout[];
+};
+
+export type SportFitbitWorkout = {
+  source: "fitbit";
+  activityKey: SportActivityKey;
+  exercise: import("./fitbit-types").FitbitExercise;
 };
 
 export type SportUser = {

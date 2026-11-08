@@ -19,9 +19,11 @@ import {
   RefreshCw,
   Stethoscope,
   Users,
+  Watch,
   Waves
 } from "lucide-react";
 import { ActivityPicker } from "./ActivityPicker";
+import { FitbitWorkoutDetails } from "./FitbitWorkoutDetails";
 import { fetchSportData, updateSportDay } from "../api";
 import type {
   SportActivityCatalogEntry,
@@ -116,7 +118,6 @@ const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   run: Footprints,
-  walking: Footprints,
   pilates: Activity,
   yoga: Flower2,
   strength_lower: Dumbbell,
@@ -136,7 +137,6 @@ const STRENGTH_ACTIVITY_KEYS: SportActivityKey[] = [
 const STRENGTH_ACTIVITY_KEY_SET = new Set<SportActivityKey>(STRENGTH_ACTIVITY_KEYS);
 const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   run: "Бег",
-  walking: "Пешая прогулка",
   pilates: "Пилатес",
   yoga: "Йога",
   strength_lower: "Силовая · низ тела",
@@ -665,8 +665,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
 
   const selectedDateEntry = selectedEntriesByDate.get(selectedDate) ?? null;
   const selectedDateSick = selectedDateEntry?.sick ?? false;
-  const selectedDateActivities = selectedDateEntry?.activities ?? [];
-  const selectedDateRunDistanceKm = selectedDateEntry?.runDistanceKm ?? null;
+  const selectedDateActivities = selectedDateEntry?.manualActivities ?? selectedDateEntry?.activities ?? [];
+  const selectedDateRunDistanceKm = selectedDateEntry?.manualRunDistanceKm !== undefined
+    ? selectedDateEntry.manualRunDistanceKm : selectedDateEntry?.runDistanceKm ?? null;
+  const selectedDateFitbitWorkouts = selectedDateEntry?.fitbitWorkouts ?? [];
   const selectedDateMaxReps = selectedDateEntry?.maxReps ?? EMPTY_MAX_REPS;
   const selectedDateHasRun = selectedDateActivities.includes("run");
   const activeRepMetrics = REP_METRICS.filter((metric) => selectedDateActivities.includes(metric.activityKey));
@@ -986,6 +988,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                     isToday ? "today" : "",
                     isSelected ? "selected" : "",
                     activities.length > 0 ? "has-activity" : "",
+                    entry?.fitbitWorkouts?.length ? "has-fitbit" : "",
                     entry?.sick ? "sick" : ""
                   ]
                     .filter(Boolean)
@@ -998,9 +1001,11 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                     .map((activity) => activity.label)
                     .join(", ") || "без занятий"}${
                     entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
-                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}`}
+                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}${entry?.fitbitWorkouts?.length ? ", автоматически из Fitbit" : ""}`}
                 >
-                  <span className="sport-day-number">{cell.date.getDate()}</span>
+                  <span className="sport-day-top"><span className="sport-day-number">{cell.date.getDate()}</span>
+                    {entry?.fitbitWorkouts?.length ? <Watch className="sport-fitbit-mark" size={13} aria-hidden="true" /> : null}
+                  </span>
                   <span className="sport-day-marks" aria-hidden="true">
                     {entry?.sick ? <Stethoscope size={17} aria-hidden="true" /> : null}
                     {activityDetails.slice(0, 1).map((activity) => {
@@ -1027,6 +1032,16 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </div>
             {savingDate === selectedDate && <RefreshCw className="spin" size={20} aria-label="Сохранение" />}
           </div>
+
+          {selectedDateFitbitWorkouts.length > 0 && (
+            <section className="sport-fitbit-workouts" aria-label="Тренировки из Fitbit">
+              {selectedDateFitbitWorkouts.map((workout) => (
+                <FitbitWorkoutDetails key={workout.exercise.id} workout={workout}
+                  label={STRENGTH_VARIANT_LABELS[workout.activityKey] ?? catalogByKey.get(workout.activityKey)?.label ?? workout.exercise.label}
+                  Icon={ACTIVITY_ICONS[workout.activityKey] ?? Activity} />
+              ))}
+            </section>
+          )}
 
           <div className="sport-sick-control">
             <button
@@ -1149,7 +1164,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               disabled={savingDate !== null}
             >
               <CircleOff size={17} />
-              <span>Снять отметки</span>
+              <span>{selectedDateFitbitWorkouts.length ? "Снять ручные отметки" : "Снять отметки"}</span>
             </button>
           ) : null}
         </article>

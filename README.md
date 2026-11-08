@@ -23,6 +23,7 @@ Personal life dashboard for health, money, relationships, and other long-running
 ## What It Does
 
 - Tracks Xiaomi Body Scale measurements with charts, metric cards, outlier-aware stats, and WebSocket refreshes.
+- Adds individual Fitbit Air overviews for activity, sleep, nightly metrics and workouts through Google Health v4. Connection setup: [Fitbit integration](docs/fitbit-integration.md).
 - Reads a local `Money.md` file and turns finance notes into a dashboard view.
 - Updates the money note from ZenMoney accounts through a local sync script.
 - Shows a configurable relationship counter with local-only title, dates, and image settings.

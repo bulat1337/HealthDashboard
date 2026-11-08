@@ -1,0 +1,14 @@
+{
+  "profiles": [
+    {
+      "dashboardUser": "Exact name of the first dashboard user",
+      "email": "first-account@example.com",
+      "timezone": "Europe/Moscow"
+    },
+    {
+      "dashboardUser": "Exact name of the second dashboard user",
+      "email": "second-account@example.com",
+      "timezone": "Europe/Moscow"
+    }
+  ]
+}
