@@ -327,20 +327,14 @@ export function FitbitDashboard({
         </p>
       ))}
 
-      {isLinked && profile?.scaleSync && (
-        <div className="fitbit-notice" role="status" aria-label="Передача измерений Xiaomi в Fitbit">
+      {isLinked && profile?.scaleSync && ["permission_required", "error"].includes(profile.scaleSync.status) && (
+        <div className="fitbit-notice" role="alert" aria-label="Передача измерений Xiaomi в Fitbit">
           <Scale size={18} aria-hidden="true" />
           <span>
             <strong>Xiaomi → Fitbit</strong>{" · "}
             {profile.scaleSync.status === "permission_required"
               ? "Разрешите передачу измерений из весов."
-              : profile.scaleSync.total === 0
-                ? "Новые измерения появятся здесь после взвешивания."
-                : `${profile.scaleSync.status === "syncing" ? "Отправляем" : "Передано"} ${profile.scaleSync.synced} из ${profile.scaleSync.total} записей.`}
-            {profile.scaleSync.error && <> {profile.scaleSync.error}</>}
-            {profile.scaleSync.skipped > 0 && <> Пропущено измерений с неполными данными: {profile.scaleSync.skipped}.</>}
-            <br />
-            <small>Вес и процент жира передаются как показатели. Остальной состав тела сохраняется в примечании к весу; расчётные значения помечены.</small>
+              : profile.scaleSync.error || "Не удалось передать измерения. Попробуйте ещё раз."}
           </span>
           {profile.scaleSync.status === "permission_required" && profile.canConnect ? (
             <button type="button" onClick={() => void connect()} disabled={syncing}>Разрешить передачу</button>

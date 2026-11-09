@@ -90,6 +90,11 @@ Supported configuration:
 
 Local files under `data/assets` are served from `/local-assets/*`, which is useful for private relationship photos kept outside Git.
 
+Vite embeds `VITE_*` settings during `npm run build`. Production builds must load
+the deployment’s `.env.local`; a build using the example defaults will replace
+the relationship title, dates and photo with demo values. Verify these settings
+and the configured photo before deploying the generated `dist` directory.
+
 ZenMoney setup for automatic money-note updates lives in [docs/zenmoney-money-sync.md](docs/zenmoney-money-sync.md).
 
 In production, the Express server can run the ZenMoney sync itself and the money tab refresh button calls `POST /api/money-data/refresh`.

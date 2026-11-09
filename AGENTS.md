@@ -177,6 +177,13 @@ Optional proxy settings:
 SERVER_NAME=health.local SERVER_ALIASES="health health-dashboard.local" sudo -E deploy/apache-health-proxy.sh
 ```
 
+Frontend production builds must preserve the deployment's `VITE_*` settings,
+including `VITE_RELATIONSHIP_*` from its ignored `.env.local`. Vite embeds these
+values at build time. Build on the deployment host with that configuration, or
+load its public `VITE_*` values with Vite's `loadEnv` into the local build process.
+Before replacing `dist`, verify that the relationship title, start date and photo
+match the deployment configuration. Keep personal values outside tracked files.
+
 ## Editing Rules
 
 - Keep edits scoped to the requested behavior.
