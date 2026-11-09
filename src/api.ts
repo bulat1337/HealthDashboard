@@ -3,7 +3,8 @@ import type {
   MoneyRecordUpdate,
   SportActivityKey,
   SportDataResponse,
-  SportMaxReps
+  SportMaxReps,
+  SportWorkoutDelete
 } from "./types";
 import type { FitbitDataResponse } from "./fitbit-types";
 
@@ -24,8 +25,8 @@ export async function refreshFitbitData(userId: string): Promise<FitbitDataRespo
   return (await fitbitRequest(`/api/fitbit/${encodeURIComponent(userId)}/refresh`, "POST")).json();
 }
 
-export async function connectFitbit(userId: string): Promise<string> {
-  const result = await (await fitbitRequest(`/api/fitbit/${encodeURIComponent(userId)}/connect`, "POST")).json() as { url: string };
+export async function connectFitbit(userId: string, workoutDeletion = false): Promise<string> {
+  const result = await (await fitbitRequest(`/api/fitbit/${encodeURIComponent(userId)}/connect${workoutDeletion ? "?workoutDeletion=true" : ""}`, "POST")).json() as { url: string };
   return result.url;
 }
 
@@ -57,6 +58,15 @@ export async function fetchSportData(signal?: AbortSignal): Promise<SportDataRes
     throw new Error(text || `HTTP ${response.status}`);
   }
   return response.json() as Promise<SportDataResponse>;
+}
+
+export async function deleteSportWorkouts(input: SportWorkoutDelete) {
+  const response = await fetch("/api/sport-data/workouts/delete", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Не удалось удалить тренировку. Попробуйте ещё раз.");
+  return result as { data: SportDataResponse["data"]; provider: { status: string; message: string } };
 }
 
 export async function updateSportDay(

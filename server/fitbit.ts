@@ -27,6 +27,7 @@ import type {
 
 const API = "https://health.googleapis.com/v4";
 const PREFIX = "https://www.googleapis.com/auth/googlehealth.";
+const WORKOUT_WRITE_SCOPE = `${PREFIX}activity_and_fitness.writeonly`;
 const SCOPES = {
   activity: `${PREFIX}activity_and_fitness.readonly`,
   sleep: `${PREFIX}sleep.readonly`,
@@ -253,6 +254,8 @@ export function createFitbitIntegration(options: {
           userId: user.id,
           name: user.name,
           canConnect,
+          canDeleteWorkouts: Boolean(canConnect && stored?.tokens.scope?.split(" ").includes(WORKOUT_WRITE_SCOPE) &&
+            errorCode !== "reauthorize"),
           status: running.has(user.id)
             ? "syncing"
             : errorCode === "reauthorize"
@@ -588,7 +591,9 @@ export function createFitbitIntegration(options: {
       response.json({
         url: oauth.generateAuthUrl({
           access_type: "offline",
-          scope: ["openid", "email", ...Object.values(SCOPES)],
+          scope: ["openid", "email", ...Object.values(SCOPES),
+            ...(request.query.workoutDeletion === "true" ? [WORKOUT_WRITE_SCOPE] : [])],
+          include_granted_scopes: true,
           state,
           nonce,
           login_hint: config.email,
@@ -727,6 +732,36 @@ export function createFitbitIntegration(options: {
   return {
     router,
     snapshot,
+    async deleteExercises(userId: string, ids: string[]) {
+      try {
+        const stored = read(userId);
+        if (!stored || !profileConfig(userId) ||
+            !stored.tokens.scope?.split(" ").includes(WORKOUT_WRITE_SCOPE)) {
+          return { status: "permission_required", message: "Календарь очищен. Для удаления в Fitbit подключите аккаунт с разрешением на удаление тренировок." };
+        }
+        if (!ids.length || ids.some((id) => !/^users\/[^/]+\/dataTypes\/exercise\/dataPoints\/[^/]+$/.test(id))) {
+          return { status: "failed", message: "Календарь очищен. Удалите запись в приложении Fitbit: у неё отсутствует идентификатор для удаления." };
+        }
+        const oauth = await client();
+        oauth.setCredentials(stored.tokens);
+        oauth.on("tokens", (tokens) => {
+          const current = read(userId);
+          if (current?.subject === stored.subject) {
+            current.tokens = { ...current.tokens, ...tokens, id_token: undefined };
+            write(userId, current);
+          }
+        });
+        const operation = await request(oauth, "users/me/dataTypes/exercise/dataPoints:batchDelete", { names: ids });
+        if (operation.error || operation.done !== true) {
+          return { status: operation.error ? "failed" : "pending", message: operation.error
+            ? "Календарь очищен. Fitbit отклонил удаление. Удалите тренировку в приложении Fitbit."
+            : "Календарь очищен. Запрос на удаление передан в Fitbit; завершение пока не подтверждено." };
+        }
+        return { status: "deleted", message: "Тренировки удалены из календаря и Fitbit." };
+      } catch {
+        return { status: "failed", message: "Календарь очищен. Удаление в Fitbit не удалось. Удалите тренировку в приложении Fitbit; в календарь она больше не загрузится." };
+      }
+    },
     start() {
       if (!settings || timer || process.env.FITBIT_SYNC_ENABLED === "false")
         return;

@@ -93,7 +93,7 @@ function DataFields({ value }: { value: Record<string, unknown> | unknown[] }) {
   })}</dl>;
 }
 
-export function FitbitWorkoutDetails({ workout, label, Icon }: { workout: SportFitbitWorkout; label: string; Icon: LucideIcon }) {
+export function FitbitWorkoutDetails({ workout, label, Icon, children }: { workout: SportFitbitWorkout; label: string; Icon: LucideIcon; children?: import("react").ReactNode }) {
   const exercise = workout.exercise;
   const session = object(exercise.dataPoint?.exercise);
   const extraMetrics = Object.fromEntries(Object.entries(object(session.metricsSummary))
@@ -108,6 +108,7 @@ export function FitbitWorkoutDetails({ workout, label, Icon }: { workout: SportF
     </summary>
     <div className="sport-fitbit-content">
       <p className="sport-fitbit-note">Добавлено автоматически из Fitbit</p>
+      {children}
       <dl className="sport-fitbit-fields">
         <div><dt>Название Fitbit</dt><dd>{exercise.label}</dd></div>
         <div><dt>Начало — окончание</dt><dd>{fitbitWorkoutClock(exercise)} — {fitbitWorkoutClock(exercise, true)}</dd></div>

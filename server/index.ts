@@ -13,7 +13,7 @@ import { atomicWrite } from "./atomic-write.js";
 import { readSavingsPlan, savingsOverview, readMoneyManualAdjustments, recordMoneyManualChanges, type SavingsOverview } from "../scripts/money-rules.mjs";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 import { createFitbitIntegration } from "./fitbit.js";
-import { mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "./sport-fitbit.js";
+import { deleteSportWorkoutsFile, mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "./sport-fitbit.js";
 import type { SportActivityKey, SportActivityCatalogEntry, SportMaxReps, SportEntry, SportUser, SportData } from "../src/types.js";
 import type { FitbitExercise } from "../src/fitbit-types.js";
 
@@ -989,6 +989,7 @@ function loadSportData(): SportData {
   const rawUsers = isPlainObject(raw) && isPlainObject(raw.users) ? raw.users : {};
   const rawSchemaVersion =
     isPlainObject(raw) && typeof raw.schemaVersion === "number" ? raw.schemaVersion : 1;
+  const profiles = fitbit.snapshot().profiles;
 
   return {
     schemaVersion: rawSchemaVersion,
@@ -998,6 +999,11 @@ function loadSportData(): SportData {
     activityCatalog: SPORT_ACTIVITY_CATALOG,
     users: SPORT_USERS.map((user) => ({
       ...user,
+      fitbit: (() => {
+        const profile = profiles.find((profile) => sportUserForFitbit(profile.userId)?.id === user.id);
+        return profile ? { userId: profile.userId, canConnect: profile.canConnect,
+          canDeleteWorkouts: profile.canDeleteWorkouts === true } : undefined;
+      })(),
       entries: mergeSportFitbitEntries(
         normalizeSportEntries(rawUsers[user.id], user.activityTypes),
         readFitbitSportWorkouts(rawUsers[user.id], user.activityTypes)
@@ -1945,14 +1951,17 @@ const fitbit = createFitbitIntegration({
   onExercises: syncFitbitSport
 });
 function syncFitbitSport(userId: string, exercises: FitbitExercise[], window?: { start: string; end: string }) {
-  // Health IDs come from Xiaomi names; sport uses stable slugs. Match the known person exactly.
-  const healthUser = getCachedData()?.users.find((user) => user.id === userId);
-  const user = SPORT_USERS.find((user) => user.id === userId || user.name === userId || user.name === healthUser?.name);
+  const user = sportUserForFitbit(userId);
   if (!user) return;
   migrateSportWalkingFile(SPORT_FILE);
   if (syncFitbitSportFile(SPORT_FILE, user.id, exercises, user.activityTypes, window)) {
     broadcast({ type: "sport-data-updated", updatedAt: new Date().toISOString() });
   }
+}
+function sportUserForFitbit(userId: string) {
+  // Health IDs come from Xiaomi names; sport uses stable slugs. Match the known person exactly.
+  const healthUser = getCachedData()?.users.find((user) => user.id === userId);
+  return SPORT_USERS.find((user) => user.id === userId || user.name === userId || user.name === healthUser?.name);
 }
 // Backfill existing cached sessions once, and retain calendar history beyond the Fitbit cache horizon.
 try {
@@ -2031,6 +2040,31 @@ app.get("/api/sport-data", (_request, response) => {
       error: errorText(error),
       dataFile: publicPath(SPORT_FILE)
     });
+  }
+});
+
+app.post("/api/sport-data/workouts/delete", async (request, response) => {
+  try {
+    const body = request.body;
+    if (!isPlainObject(body) || typeof body.deleteFromFitbit !== "boolean")
+      throw new Error("Укажите способ удаления тренировки.");
+    const user = SPORT_USERS.find((user) => user.id === body.userId);
+    if (!user) throw new Error("Укажите пользователя: bulat или diana.");
+    const single = typeof body.exerciseId === "string" && Boolean(body.exerciseId);
+    const day = isDateKey(body.date);
+    if (single === day || (single && body.date !== undefined) || (day && body.exerciseId !== undefined))
+      throw new Error("Укажите тренировку или дату для очистки.");
+    const ids = deleteSportWorkoutsFile(SPORT_FILE, user.id, user.activityTypes,
+      single ? { exerciseId: body.exerciseId as string } : { date: body.date as string });
+    const updatedAt = new Date().toISOString();
+    broadcast({ type: "sport-data-updated", updatedAt });
+    const profile = fitbit.snapshot().profiles.find((profile) => sportUserForFitbit(profile.userId)?.id === user.id);
+    const provider = body.deleteFromFitbit && ids.length
+      ? await fitbit.deleteExercises(profile?.userId ?? "", ids)
+      : { status: "local_only", message: "Календарь очищен. Удалённые тренировки больше не загрузятся из Fitbit." };
+    response.json({ ok: true, updatedAt, data: loadSportData(), provider });
+  } catch (error) {
+    response.status(400).json({ ok: false, error: errorText(error) });
   }
 });
 

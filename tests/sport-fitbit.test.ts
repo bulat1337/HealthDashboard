@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fitbitSportActivity, mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "../server/sport-fitbit.js";
+import { deleteSportWorkoutsFile, fitbitSportActivity, mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "../server/sport-fitbit.js";
 import type { SportActivityKey, SportEntry } from "../src/types.js";
 import type { FitbitExercise } from "../src/fitbit-types.js";
 
@@ -99,4 +99,41 @@ test("Day projection combines multiple Fitbit sessions with independent manual e
   assert.deepEqual(autoOnly.manualActivities, []);
   assert.deepEqual(autoOnly.activities, ["run", "strength_whole"]);
   assert.deepEqual(base.activities, ["strength_upper"]);
+});
+
+test("Deleted calendar workouts stay excluded across source refreshes and startup backfills, scoped to their person", (t) => {
+  const { file, read } = storage(t);
+  const run = exercise(), strength = exercise({ id: "strength", type: "STRENGTH_TRAINING" });
+  fs.writeFileSync(file, JSON.stringify({ users: { bulat: { entries: { [run.date]: ["yoga"] } } } }));
+  syncFitbitSportFile(file, "bulat", [run, strength], allowed);
+  syncFitbitSportFile(file, "diana", [run], allowed);
+  assert.deepEqual(deleteSportWorkoutsFile(file, "bulat", allowed, { exerciseId: strength.id }), [strength.id]);
+  assert.deepEqual(read().users.bulat.entries[run.date], ["yoga"]);
+  assert.equal(syncFitbitSportFile(file, "bulat", [run, strength], allowed), false);
+  assert.equal(syncFitbitSportFile(file, "bulat", [run, strength], allowed,
+    { start: "2026-11-01", end: "2026-11-09" }), false);
+  assert.deepEqual(readFitbitSportWorkouts(read().users.bulat, allowed).map((w) => w.exercise.id), [run.id]);
+  assert.equal(readFitbitSportWorkouts(read().users.diana, allowed).length, 1);
+  // Filtering also protects readers if a stale writer left the deleted row in the file.
+  assert.equal(readFitbitSportWorkouts({ ...read().users.bulat,
+    fitbitWorkouts: [{ source: "fitbit", activityKey: "strength_whole", exercise: strength }] }, allowed).length, 0);
+  assert.deepEqual(deleteSportWorkoutsFile(file, "bulat", allowed, { exerciseId: strength.id }), [strength.id]);
+  assert.throws(() => deleteSportWorkoutsFile(file, "diana", allowed, { exerciseId: strength.id }), /не найдена/);
+});
+
+test("Clearing a day atomically removes manual marks and all its imported workouts, retaining other dates and people", (t) => {
+  const { file, read } = storage(t);
+  const run = exercise(), other = exercise({ id: "other-day", date: "2026-11-06", start: "2026-11-06T06:00:00Z" });
+  fs.writeFileSync(file, JSON.stringify({ extra: true, users: { bulat: { entries: {
+    [run.date]: { activities: ["yoga"], sick: true }, [other.date]: ["pilates"],
+  }, extra: "keep" }, diana: { entries: { [run.date]: ["run"] } } } }));
+  syncFitbitSportFile(file, "bulat", [run, other, exercise({ id: "strength", type: "STRENGTH_TRAINING" })], allowed);
+  assert.deepEqual(new Set(deleteSportWorkoutsFile(file, "bulat", allowed, { date: run.date })), new Set([run.id, "strength"]));
+  assert.equal(read().users.bulat.entries[run.date], undefined);
+  assert.deepEqual(read().users.bulat.entries[other.date], ["pilates"]);
+  assert.equal(read().users.bulat.extra, "keep");
+  assert.equal(read().extra, true);
+  assert.deepEqual(read().users.diana.entries[run.date], ["run"]);
+  syncFitbitSportFile(file, "bulat", [run, other], allowed);
+  assert.deepEqual(read().users.bulat.fitbitWorkouts.map((w: any) => w.exercise.id), [other.id]);
 });

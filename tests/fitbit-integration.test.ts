@@ -76,12 +76,15 @@ const scope = [
     (group) => `https://www.googleapis.com/auth/googlehealth.${group}.readonly`,
   )
   .join(" ");
+let grantedScopes = scope;
+let deletionOperation: Record<string, unknown> = { done: true, response: {} };
+const providerDeletes: unknown[] = [];
 mock.method(OAuth2Client.prototype, "getToken", async () => ({
   tokens: {
     access_token: "fixture-access",
     refresh_token: "fixture-refresh",
     id_token: "fixture-id",
-    scope,
+    scope: grantedScopes,
     expiry_date: Date.now() + 3600_000,
   },
 }));
@@ -111,6 +114,11 @@ mock.method(
       return new Response("{}", { status: 403 });
     if (url.pathname.endsWith("/identity"))
       return Response.json({ healthUserId: "health-a" });
+    if (url.pathname.endsWith("/exercise/dataPoints:batchDelete")) {
+      assert.equal(init?.method, "POST");
+      providerDeletes.push(JSON.parse(String(init?.body)));
+      return Response.json(deletionOperation);
+    }
     if (url.pathname.includes("steps")) {
       const body = JSON.parse(String(init?.body));
       const date = body.range.start.date;
@@ -157,9 +165,9 @@ after(async () => {
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
-async function begin(user = "User A") {
+async function begin(user = "User A", workoutDeletion = false) {
   const result = await nativeFetch(
-    `${origin}/api/fitbit/${encodeURIComponent(user)}/connect`,
+    `${origin}/api/fitbit/${encodeURIComponent(user)}/connect${workoutDeletion ? "?workoutDeletion=true" : ""}`,
     { method: "POST", headers: { Origin: origin } },
   );
   assert.equal(result.status, 200);
@@ -198,6 +206,7 @@ test("Fitbit OAuth requires configured origin, known profile, state cookie and P
   const auth = await begin();
   assert.equal(auth.url.searchParams.get("code_challenge_method"), "S256");
   assert.equal(auth.url.searchParams.get("access_type"), "offline");
+  assert.doesNotMatch(auth.url.searchParams.get("scope")!, /writeonly/);
   assert.equal(
     new URL(
       (await callback(auth, "")).headers.get("location")!,
@@ -319,6 +328,31 @@ test("Fitbit exercise fetch failures do not replace calendar history", async () 
     assert.equal(calendarSyncs.length, previousCalls);
     assert.equal(integration.snapshot().profiles[0].warnings.length, 1);
   } finally { denyExercise = false; }
+});
+
+test("Fitbit deletion requires explicit write permission and reports confirmed, pending and failed operations accurately", async () => {
+  const ids = ["users/health-a/dataTypes/exercise/dataPoints/strength-one"];
+  assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "permission_required");
+  assert.equal(providerDeletes.length, 0);
+  const auth = await begin("User A", true);
+  assert.ok(auth.url.searchParams.get("scope")!.includes("activity_and_fitness.writeonly"));
+  grantedScopes = `${scope} https://www.googleapis.com/auth/googlehealth.activity_and_fitness.writeonly`;
+  try {
+    assert.equal(new URL((await callback(auth)).headers.get("location")!).searchParams.get("fitbit"), "connected");
+    for (let attempt = 0; integration.snapshot().profiles[0].status === "syncing" && attempt < 100; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(integration.snapshot().profiles[0].canDeleteWorkouts, true);
+    assert.equal((await integration.deleteExercises(users[0].id, ["legacy-id"])).status, "failed");
+    assert.equal(providerDeletes.length, 0);
+    assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "deleted");
+    assert.deepEqual(providerDeletes.at(-1), { names: ids });
+    deletionOperation = { name: "operations/pending" };
+    assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "pending");
+    deletionOperation = { done: true, error: { code: 7 } };
+    assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "failed");
+    denyExercise = true;
+    assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "failed");
+  } finally { grantedScopes = scope; denyExercise = false; deletionOperation = { done: true, response: {} }; }
 });
 
 test("Fitbit connects a second account independently and keeps expired access isolated", async () => {

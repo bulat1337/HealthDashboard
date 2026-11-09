@@ -75,6 +75,24 @@ test('API ingestion, atomic sport edits, websocket updates, origin checks, and m
   assert.deepEqual(autoDay.activities,['run']);
   assert.equal(autoDay.runDistanceKm,3.14);
   assert.deepEqual(autoDay.fitbitWorkouts,[calendarWorkout]);
+  const removeWorkout = (body: unknown, origin?: string) => fetch(base+'/api/sport-data/workouts/delete', {
+    method:'POST', headers:{'Content-Type':'application/json', ...(origin ? {Origin:origin} : {})}, body:JSON.stringify(body)
+  });
+  const deletion = {userId:'bulat', exerciseId:'provider-run', deleteFromFitbit:false};
+  assert.equal((await removeWorkout(deletion,'https://example.org')).status,403);
+  assert.equal((await removeWorkout({...deletion,userId:'diana'})).status,400);
+  assert.equal((await removeWorkout({...deletion,date:sportBody.date})).status,400);
+  assert.equal((await removeWorkout({...deletion,deleteFromFitbit:'true'})).status,400);
+  const removed = await removeWorkout({...deletion,deleteFromFitbit:true});
+  assert.equal(removed.status,200);
+  const removal = await removed.json();
+  assert.equal(removal.provider.status,'permission_required');
+  assert.ok(!removal.data.users[0].entries.some((entry:any)=>entry.date===sportBody.date));
+  assert.deepEqual(JSON.parse(fs.readFileSync(sport,'utf8')).users.bulat.deletedFitbitWorkoutIds,['provider-run']);
+  assert.equal((await removeWorkout(deletion)).status,200);
+  assert.equal((await editSport(sportBody)).status,200);
+  assert.equal((await removeWorkout({userId:'bulat',date:sportBody.date,deleteFromFitbit:false})).status,200);
+  assert.ok(!(await readEntries('bulat')).some((entry:any)=>entry.date===sportBody.date));
   await new Promise(r=>setTimeout(r,100));
   assert.ok(messages.some(m=>m.type==='health-data-updated'));
   assert.ok(messages.some(m=>m.type==='sport-data-updated'));

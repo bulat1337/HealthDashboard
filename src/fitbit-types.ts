@@ -80,6 +80,7 @@ export type FitbitProfile = {
     | "error"
     | "reauthorize";
   canConnect: boolean;
+  canDeleteWorkouts?: boolean;
   lastSyncAt: string | null;
   lastAttemptAt: string | null;
   error: string | null;

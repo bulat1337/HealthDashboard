@@ -220,7 +220,11 @@ export type SportUser = {
   name: string;
   activityTypes: SportActivityKey[];
   entries: SportEntry[];
+  fitbit?: { userId: string; canConnect: boolean; canDeleteWorkouts: boolean };
 };
+
+export type SportWorkoutDelete = { userId: string; deleteFromFitbit: boolean } &
+  ({ exerciseId: string } | { date: string });
 
 export type SportData = {
   schemaVersion: number;

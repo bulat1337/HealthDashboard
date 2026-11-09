@@ -11,7 +11,6 @@ import {
   ChevronRight,
   ChevronsUp,
   CircleAlert,
-  CircleOff,
   Dumbbell,
   Flower2,
   Footprints,
@@ -24,7 +23,8 @@ import {
 } from "lucide-react";
 import { ActivityPicker } from "./ActivityPicker";
 import { FitbitWorkoutDetails } from "./FitbitWorkoutDetails";
-import { fetchSportData, updateSportDay } from "../api";
+import { WorkoutDeleteControl } from "./WorkoutDeleteControl";
+import { connectFitbit, deleteSportWorkouts, fetchSportData, updateSportDay } from "../api";
 import type {
   SportActivityCatalogEntry,
   SportActivityKey,
@@ -594,6 +594,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const [revealDayRequest, setRevealDayRequest] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const dataRequest = useRef(0);
   const [savingDate, setSavingDate] = useState<string | null>(null);
   const [runDistanceDraft, setRunDistanceDraft] = useState("");
   const [runDistanceError, setRunDistanceError] = useState<string | null>(null);
@@ -626,9 +628,11 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestId = ++dataRequest.current;
     setIsLoading(true);
     fetchSportData(controller.signal)
       .then((response) => {
+        if (controller.signal.aborted || requestId !== dataRequest.current) return;
         setData(response.data);
         setError(null);
         setSelectedUserId((current) =>
@@ -642,7 +646,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
         setError(loadError instanceof Error ? loadError.message : String(loadError));
       })
       .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
+        if (!controller.signal.aborted && requestId === dataRequest.current) setIsLoading(false);
       });
 
     return () => controller.abort();
@@ -745,6 +749,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     const maxReps = maxRepsForActivities(activities, nextMaxReps);
     setSavingDate(selectedDate);
     setError(null);
+    setDeleteMessage(null);
     try {
       const response = await updateSportDay({
         userId: selectedUser.id,
@@ -759,6 +764,36 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
     } finally {
       setSavingDate(null);
+    }
+  }
+
+  async function removeWorkouts(deleteFromFitbit: boolean, exerciseId?: string) {
+    if (!selectedUser || savingDate !== null) return;
+    ++dataRequest.current;
+    setSavingDate(selectedDate);
+    setError(null);
+    setDeleteMessage(null);
+    try {
+      const result = await deleteSportWorkouts({ userId: selectedUser.id, deleteFromFitbit,
+        ...(exerciseId ? { exerciseId } : { date: selectedDate }) });
+      ++dataRequest.current;
+      setIsLoading(false);
+      setData(result.data);
+      setDeleteMessage(result.provider.message);
+      dayPanelRef.current?.focus({ preventScroll: true });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally { setSavingDate(null); setIsLoading(false); }
+  }
+
+  async function allowFitbitDeletion() {
+    if (!selectedUser?.fitbit) return;
+    try {
+      window.location.assign(await connectFitbit(selectedUser.fitbit.userId, true));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      throw error;
     }
   }
 
@@ -1033,12 +1068,17 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             {savingDate === selectedDate && <RefreshCw className="spin" size={20} aria-label="Сохранение" />}
           </div>
 
+          {deleteMessage && <p className="sport-delete-message" role="status">{deleteMessage}</p>}
+
           {selectedDateFitbitWorkouts.length > 0 && (
             <section className="sport-fitbit-workouts" aria-label="Тренировки из Fitbit">
               {selectedDateFitbitWorkouts.map((workout) => (
                 <FitbitWorkoutDetails key={workout.exercise.id} workout={workout}
                   label={STRENGTH_VARIANT_LABELS[workout.activityKey] ?? catalogByKey.get(workout.activityKey)?.label ?? workout.exercise.label}
-                  Icon={ACTIVITY_ICONS[workout.activityKey] ?? Activity} />
+                  Icon={ACTIVITY_ICONS[workout.activityKey] ?? Activity}>
+                  <WorkoutDeleteControl hasFitbit fitbit={selectedUser?.fitbit} disabled={savingDate !== null}
+                    onDelete={(alsoFitbit) => removeWorkouts(alsoFitbit, workout.exercise.id)} onConnect={allowFitbitDeletion} />
+                </FitbitWorkoutDetails>
               ))}
             </section>
           )}
@@ -1156,16 +1196,10 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </div>
           ) : null}
 
-          {selectedDateActivities.length > 0 || selectedDateSick ? (
-            <button
-              className="sport-clear-button"
-              type="button"
-              onClick={() => void saveSportDay([], null, EMPTY_MAX_REPS, false)}
-              disabled={savingDate !== null}
-            >
-              <CircleOff size={17} />
-              <span>{selectedDateFitbitWorkouts.length ? "Снять ручные отметки" : "Снять отметки"}</span>
-            </button>
+          {selectedDateActivities.length > 0 || selectedDateSick || selectedDateFitbitWorkouts.length > 0 ? (
+            <WorkoutDeleteControl key={`delete-${selectedUserId}-${selectedDate}`} wholeDay
+              hasFitbit={selectedDateFitbitWorkouts.length > 0} fitbit={selectedUser?.fitbit} disabled={savingDate !== null}
+              onDelete={(alsoFitbit) => removeWorkouts(alsoFitbit)} onConnect={allowFitbitDeletion} />
           ) : null}
         </article>
       </section>

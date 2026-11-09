@@ -66,12 +66,14 @@ export function syncFitbitSportFile(
   const users = object(raw.users);
   const user = object(users[userId]);
   const previous = readFitbitSportWorkouts(user, allowed);
+  const deletedIds = deletedFitbitIds(user);
   const incomingIds = new Set(exercises.map((exercise) => exercise.id));
   const workouts = new Map(previous
     .filter(({ exercise }) => !incomingIds.has(exercise.id) &&
       (!window || exercise.date < window.start || exercise.date >= window.end))
     .map((workout) => [workout.exercise.id, workout]));
   for (const exercise of exercises) {
+    if (deletedIds.has(exercise.id)) continue;
     const activityKey = fitbitSportActivity(exercise, allowed);
     if (!activityKey || !validExercise(exercise)) continue;
     workouts.set(exercise.id, { source: "fitbit", activityKey, exercise });
@@ -93,12 +95,46 @@ function validExercise(exercise: FitbitExercise) {
     date.toISOString().slice(0, 10) === exercise.date && Number.isFinite(Date.parse(exercise.start));
 }
 
+function deletedFitbitIds(rawUser: unknown): Set<string> {
+  const ids = object(rawUser).deletedFitbitWorkoutIds;
+  return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+}
+
+/** Persist exclusions before any network request so refreshes and startup backfills cannot restore them. */
+export function deleteSportWorkoutsFile(
+  filename: string, userId: string, allowed: readonly SportActivityKey[],
+  target: { exerciseId: string } | { date: string },
+) {
+  const raw = fs.existsSync(filename) ? object(JSON.parse(fs.readFileSync(filename, "utf8"))) : {};
+  const users = object(raw.users), user = object(users[userId]);
+  const workouts = readFitbitSportWorkouts(user, allowed);
+  const deletedIds = deletedFitbitIds(user);
+  const ids = "exerciseId" in target
+    ? workouts.filter(({ exercise }) => exercise.id === target.exerciseId).map(({ exercise }) => exercise.id)
+    : workouts.filter(({ exercise }) => exercise.date === target.date).map(({ exercise }) => exercise.id);
+  if ("exerciseId" in target && !ids.length) {
+    if (deletedIds.has(target.exerciseId)) return [target.exerciseId];
+    throw new Error("Тренировка не найдена. Обновите календарь.");
+  }
+  for (const id of ids) deletedIds.add(id);
+  const entries = { ...object(user.entries) };
+  if ("date" in target) delete entries[target.date];
+  users[userId] = { ...user, entries, deletedFitbitWorkoutIds: [...deletedIds],
+    fitbitWorkouts: workouts.filter(({ exercise }) => !deletedIds.has(exercise.id)) };
+  raw.users = users;
+  raw.schemaVersion = Math.max(Number(raw.schemaVersion) || 1, 6);
+  fs.mkdirSync(path.dirname(filename), { recursive: true });
+  atomicWrite(filename, `${JSON.stringify(raw, null, 2)}\n`);
+  return ids;
+}
+
 export function readFitbitSportWorkouts(rawUser: unknown, allowed: readonly SportActivityKey[]): SportFitbitWorkout[] {
   const raw = object(rawUser).fitbitWorkouts;
   if (!Array.isArray(raw)) return [];
+  const deletedIds = deletedFitbitIds(rawUser);
   return raw.filter((value): value is SportFitbitWorkout => {
     const workout = object(value), exercise = object(workout.exercise) as FitbitExercise;
-    return workout.source === "fitbit" && validExercise(exercise) &&
+    return workout.source === "fitbit" && validExercise(exercise) && !deletedIds.has(exercise.id) &&
       fitbitSportActivity(exercise, allowed) === workout.activityKey;
   });
 }
