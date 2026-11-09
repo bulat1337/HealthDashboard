@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  ClipboardList,
   Dumbbell,
   Flame,
   HeartHandshake,
@@ -20,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchFitbitData, fetchHealthData, openHealthSocket, refreshFitbitData, refreshMoneyData } from "./api";
 import { HealthChart } from "./components/HealthChart";
 import { FitbitDashboard } from "./components/FitbitDashboard";
+import { InBodyDashboard } from "./components/InBodyDashboard";
 import { MoneyDashboard } from "./components/MoneyDashboard";
 import { RelationshipDashboard } from "./components/RelationshipDashboard";
 import { SportDashboard } from "./components/SportDashboard";
@@ -252,7 +254,8 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sportRefreshKey, setSportRefreshKey] = useState(0);
   const [fitbitRefreshKey, setFitbitRefreshKey] = useState(0);
-  const [healthView, setHealthView] = useState<"overview" | "body">("overview");
+  const [inbodyRefreshKey, setInbodyRefreshKey] = useState(0);
+  const [healthView, setHealthView] = useState<"overview" | "body" | "inbody">("overview");
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [selectedMeasurementId, setSelectedMeasurementId] = useState<number | null>(null);
   const measurementPanelRef = useRef<HTMLElement>(null);
@@ -289,6 +292,7 @@ function App() {
       if (activeDomain === "sport") {
         setSportRefreshKey((current) => current + 1);
       }
+      if (activeDomain === "health" && healthView === "inbody") setInbodyRefreshKey(current => current + 1);
       if (activeDomain === "health" && healthView === "overview") {
         const fitbit = await fetchFitbitData();
         const profile = fitbit.profiles.find((entry) => entry.userId === selectedUser);
@@ -326,6 +330,7 @@ function App() {
       socket = openHealthSocket((message) => {
         const event = message as { type?: string; updatedAt?: string };
         if (event.type === "connected") {
+          setInbodyRefreshKey((current) => current + 1);
           setSocketConnected(true);
           setSportRefreshKey((current) => current + 1);
           setFitbitRefreshKey((current) => current + 1);
@@ -345,6 +350,10 @@ function App() {
           setLastEventAt(event.updatedAt ?? new Date().toISOString());
           setFitbitRefreshKey((current) => current + 1);
         }
+        if (event.type === "inbody-data-updated") {
+          setLastEventAt(event.updatedAt ?? new Date().toISOString());
+          setInbodyRefreshKey(current => current + 1);
+        }
         if (event.type === "health-data-error" || event.type === "money-data-error") {
           setError("Ошибка чтения обновленных данных");
         }
@@ -362,6 +371,7 @@ function App() {
       load().catch((loadError) => setError(String(loadError)));
       setSportRefreshKey((current) => current + 1);
       setFitbitRefreshKey((current) => current + 1);
+      setInbodyRefreshKey((current) => current + 1);
     }
     document.addEventListener("visibilitychange", onVisible);
     connect();
@@ -580,11 +590,15 @@ function App() {
             onClick={() => setHealthView("overview")}><Watch size={17} />Обзор</button>
           <button type="button" className={healthView === "body" ? "active" : ""} aria-pressed={healthView === "body"}
             onClick={() => setHealthView("body")}><Scale size={17} />Состав тела</button>
+          <button type="button" className={healthView === "inbody" ? "active" : ""} aria-pressed={healthView === "inbody"}
+            onClick={() => setHealthView("inbody")}><ClipboardList size={17} />InBody</button>
         </div>
       </section>
 
       {healthView === "overview" ? (
         <FitbitDashboard key={selectedUser} userId={selectedUser} name={data.users.find((user) => user.id === selectedUser)?.name ?? selectedUser} refreshKey={fitbitRefreshKey} />
+      ) : healthView === "inbody" ? (
+        <InBodyDashboard key={selectedUser} userId={selectedUser} name={selectedUser} refreshKey={inbodyRefreshKey} />
       ) : selectedMetricInfo ? (
         <>
       <div className="health-body-heading">

@@ -24,6 +24,7 @@ Personal life dashboard for health, money, relationships, and other long-running
 
 - Tracks Xiaomi Body Scale measurements with charts, metric cards, outlier-aware stats, and WebSocket refreshes.
 - Adds individual Fitbit Air overviews for activity, sleep, nightly metrics and workouts through Google Health v4. Connection setup: [Fitbit integration](docs/fitbit-integration.md).
+- Keeps InBody reports in a separate health subsection, with per-person history, body composition, segment charts, original report images and manual measurement entry. Storage: [InBody](docs/inbody.md).
 - Reads a local `Money.md` file and turns finance notes into a dashboard view.
 - Updates the money note from ZenMoney accounts through a local sync script.
 - Shows a configurable relationship counter with local-only title, dates, and image settings.
@@ -76,6 +77,7 @@ Supported configuration:
 | `HEALTH_DATA_FILE` | Optional direct path to `xiaomi-body-scale-data.json`. |
 | `MONEY_DATA_FILE` | Markdown file used by the money dashboard. |
 | `SPORT_DATA_FILE` | JSON file used by the sport calendar. Defaults to `./data/sport/sport-tracker.json`. |
+| `INBODY_DATA_FILE` | JSON file for InBody reports. Defaults to `./data/inbody/inbody-data.json`; original images live in the adjacent `reports/` directory. |
 | `MONEY_PARTNER_LABEL` | Optional local label for partner-specific money notes. |
 | `ZENMONEY_TOKEN_FILE` | Optional local ZenMoney OAuth token JSON path. |
 | `ZENMONEY_CLIENT_ID` | Optional ZenMoney OAuth client id. |

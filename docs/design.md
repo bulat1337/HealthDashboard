@@ -27,8 +27,13 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   intercept clicks. Money points retain keyboard selection.
 - Show six fields of the selected health measurement initially. A labeled
   disclosure reveals every remaining field without changing values.
-- Health shares one person selector across «Обзор» (Fitbit Air) and «Состав
-  тела» (Xiaomi). Fitbit keeps each account separate, shows daily records and
+- Health shares one person selector across «Обзор» (Fitbit Air), «Состав
+  тела» (Xiaomi) and «InBody». InBody retains independent per-person reports,
+  original device dates, source ranges and original images. Composition bars
+  and segment charts show source values; a single report stays a single chart
+  point. Optional metric gaps are preserved. Additional report fields and
+  manual-entry segment inputs use disclosures; phone date selectors retain
+  both date and time. Fitbit keeps each account separate, shows daily records and
   7/30-day selectable charts, and retains missing values as gaps. Sleep belongs
   to the local waking date. Sleep stages use source intervals on separate colored
   tracks; older summary-only caches show durations. Intraday heart rate uses

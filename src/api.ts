@@ -7,6 +7,23 @@ import type {
   SportWorkoutDelete
 } from "./types";
 import type { FitbitDataResponse } from "./fitbit-types";
+import type { InBodyInput, InBodyRecord, InBodyResponse } from "./inbody-types";
+
+export async function fetchInBodyData(signal?: AbortSignal): Promise<InBodyResponse> {
+  const response = await fetch("/api/inbody-data", { signal });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Не удалось загрузить измерения InBody");
+  return result;
+}
+
+export async function saveInBodyData(input: InBodyInput): Promise<InBodyResponse & { record: InBodyRecord }> {
+  const response = await fetch("/api/inbody-data/measurements", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Не удалось сохранить измерение InBody");
+  return result;
+}
 
 async function fitbitRequest(url: string, method: "GET" | "POST", signal?: AbortSignal) {
   const response = await fetch(url, { method, signal });

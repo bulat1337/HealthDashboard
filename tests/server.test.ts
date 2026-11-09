@@ -9,16 +9,19 @@ import {WebSocket} from 'ws';
 
 test('API ingestion, atomic sport edits, websocket updates, origin checks, and missing-data recovery', async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dashboard-api-'));
-  const health=path.join(dir,'xiaomi-body-scale-data.json'),sport=path.join(dir,'sport.json');
+  const health=path.join(dir,'xiaomi-body-scale-data.json'),sport=path.join(dir,'sport.json'),inbody=path.join(dir,'inbody.json');
   const calendarWorkout = {source:'fitbit',activityKey:'run',exercise:{id:'provider-run',date:'2026-09-05',start:'2026-09-05T06:00:00Z',label:'Morning run',type:'RUNNING',durationMinutes:30,distanceKm:3.14,calories:250,averageHeartRate:140,dataPoint:{exercise:{metadata:{preserved:true}}}}};
   fs.writeFileSync(sport,JSON.stringify({schemaVersion:1,users:{bulat:{entries:{'2026-09-01':['walking']},fitbitWorkouts:[calendarWorkout]}}}));
   const port=await new Promise<number>(resolve=>{const probe=net.createServer();probe.listen(0,'127.0.0.1',()=>{const n=(probe.address() as net.AddressInfo).port;probe.close(()=>resolve(n));});});
-  const proc=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,PORT:String(port),HOST:'127.0.0.1',NODE_ENV:'production',HEALTH_DATA_DIR:dir,HEALTH_DATA_FILE:health,MONEY_DATA_FILE:path.join(dir,'Money.md'),SPORT_DATA_FILE:sport,MONEY_SYNC_ENABLED:'false',HEALTH_INGEST_TOKEN:'test',HEALTH_DEFAULT_TIMEZONE:'UTC'},stdio:'ignore'});
+  const proc=spawn(process.execPath,['--import','tsx','server/index.ts'],{env:{...process.env,PORT:String(port),HOST:'127.0.0.1',NODE_ENV:'production',HEALTH_DATA_DIR:dir,HEALTH_DATA_FILE:health,MONEY_DATA_FILE:path.join(dir,'Money.md'),SPORT_DATA_FILE:sport,INBODY_DATA_FILE:inbody,MONEY_SYNC_ENABLED:'false',HEALTH_INGEST_TOKEN:'test',HEALTH_DEFAULT_TIMEZONE:'UTC'},stdio:'ignore'});
   t.after(()=>{proc.kill();fs.rmSync(dir,{recursive:true,force:true});});
   const base=`http://127.0.0.1:${port}`;
   // Cold module loading can exceed five seconds on the local macOS host.
   for(let i=0;i<300;i++) {try{await fetch(base+'/api/status');break;}catch{await new Promise(r=>setTimeout(r,50));}}
   assert.equal((await (await fetch(base+'/api/status')).json()).ok,false);
+  const unavailableInbody=await fetch(base+'/api/inbody-data/measurements',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  assert.equal(unavailableInbody.status,503);
+  assert.ok(!(await unavailableInbody.text()).includes(dir));
   fs.writeFileSync(health,JSON.stringify({users:[{name:'A'}],measurements:[]}));
   // The service remains up when the data file is absent at startup, and recovers on arrival.
   for(let i=0;i<40;i++){if((await fetch(base+'/api/health-data')).ok)break;await new Promise(r=>setTimeout(r,50));}
@@ -96,4 +99,34 @@ test('API ingestion, atomic sport edits, websocket updates, origin checks, and m
   await new Promise(r=>setTimeout(r,100));
   assert.ok(messages.some(m=>m.type==='health-data-updated'));
   assert.ok(messages.some(m=>m.type==='sport-data-updated'));
+  assert.deepEqual((await (await fetch(base+'/api/inbody-data')).json()).data.measurements,[]);
+  const report={userId:'A',measuredAtLocal:'2024-10-13T16:41',device:'InBody 570',metrics:{weightKg:60,skeletalMuscleKg:25,bodyFatKg:15,bodyFatPercent:25}};
+  const saveReport=(body: unknown, origin?: string)=>fetch(base+'/api/inbody-data/measurements',{
+    method:'POST',headers:{'Content-Type':'application/json',...(origin ? {Origin:origin}:{})},body:JSON.stringify(body),
+  });
+  assert.equal((await saveReport(report,'https://example.org')).status,403);
+  assert.equal((await saveReport({...report,userId:'B'})).status,400);
+  assert.equal((await saveReport({...report,metrics:{weightKg:60}})).status,400);
+  const savedReport=await saveReport(report);
+  assert.equal(savedReport.status,201);
+  const savedInbody=await savedReport.json();
+  assert.equal(savedInbody.record.measuredAtLocal,'2024-10-13T16:41');
+  assert.equal((await saveReport(report)).status,409);
+  assert.equal(JSON.parse(fs.readFileSync(inbody,'utf8')).measurements.length,1);
+  assert.equal((await (await fetch(base+'/api/inbody-data')).json()).data.measurements[0].id,savedInbody.record.id);
+  assert.equal((await fetch(base+`/api/inbody-data/measurements/${savedInbody.record.id}/source`)).status,404);
+  const reportData=JSON.parse(fs.readFileSync(inbody,'utf8'));
+  reportData.measurements[0].sourceImage='report.png';
+  fs.mkdirSync(path.join(dir,'reports'));
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV9sAAAAASUVORK5CYII=','base64');
+  fs.writeFileSync(path.join(dir,'reports','report.png'),png);
+  fs.writeFileSync(inbody,JSON.stringify(reportData));
+  const originalImage=await fetch(base+`/api/inbody-data/measurements/${savedInbody.record.id}/source`);
+  assert.equal(originalImage.status,200);
+  assert.match(originalImage.headers.get('content-type') ?? '',/image\/png/);
+  assert.deepEqual(Buffer.from(await originalImage.arrayBuffer()),png);
+  reportData.measurements[0].sourceImage='../report.png';
+  fs.writeFileSync(inbody,JSON.stringify(reportData));
+  assert.equal((await fetch(base+`/api/inbody-data/measurements/${savedInbody.record.id}/source`)).status,404);
+  assert.ok(messages.some(m=>m.type==='inbody-data-updated'));
 });

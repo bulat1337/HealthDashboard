@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { WebSocketServer } from "ws";
 import os from "node:os";
 import { atomicWrite } from "./atomic-write.js";
+import { createInBodyRouter } from "./inbody.js";
 import { readSavingsPlan, savingsOverview, readMoneyManualAdjustments, recordMoneyManualChanges, type SavingsOverview } from "../scripts/money-rules.mjs";
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 import { createFitbitIntegration } from "./fitbit.js";
@@ -62,6 +63,7 @@ const DEFAULT_MONEY_FILE = path.join(rootDir, "data", "money", "Money.md");
 const MONEY_FILE = process.env.MONEY_DATA_FILE || DEFAULT_MONEY_FILE;
 const DEFAULT_SPORT_FILE = path.join(rootDir, "data", "sport", "sport-tracker.json");
 const SPORT_FILE = process.env.SPORT_DATA_FILE || DEFAULT_SPORT_FILE;
+const INBODY_FILE = process.env.INBODY_DATA_FILE || path.join(rootDir, "data", "inbody", "inbody-data.json");
 const LOCAL_ASSETS_DIR = path.join(rootDir, "data", "assets");
 const MONEY_PARTNER_LABEL = process.env.MONEY_PARTNER_LABEL?.trim() || "партнера";
 const PORT = Number(process.env.PORT || 5000);
@@ -1976,6 +1978,8 @@ try {
   console.error("Fitbit sport calendar backfill failed:", errorText(error));
 }
 app.use("/api", fitbit.router);
+app.use("/api", createInBodyRouter(INBODY_FILE, () => getCachedData()?.users.map(user => user.id) ?? [],
+  () => broadcast({ type: "inbody-data-updated", updatedAt: new Date().toISOString() })));
 
 app.get("/api/health-data", (_request, response) => {
   try {
@@ -2275,7 +2279,7 @@ function tokenMatches(actual: string | null) {
 }
 
 const refreshTimers = new Map<string, NodeJS.Timeout>();
-const watcher = chokidar.watch([DATA_FILE, MONEY_FILE, SPORT_FILE], {
+const watcher = chokidar.watch([DATA_FILE, MONEY_FILE, SPORT_FILE, INBODY_FILE], {
   ignoreInitial: true,
   awaitWriteFinish: {
     stabilityThreshold: 350,
@@ -2289,6 +2293,10 @@ watcher.on("all", (event, changedPath) => {
   refreshTimers.set(changedPath, setTimeout(() => {
     refreshTimers.delete(changedPath);
     try {
+      if (changedPath === INBODY_FILE) {
+        broadcast({ type: "inbody-data-updated", updatedAt: new Date().toISOString() });
+        return;
+      }
       if (changedPath === SPORT_FILE) {
         loadSportData();
         broadcast({ type: "sport-data-updated", updatedAt: new Date().toISOString() });
