@@ -158,6 +158,10 @@ export function MoneyTrendChart({ records, selectedRecordId = null, onRecordSele
       <div className={`money-chart-scroll${chart.maxStart > chart.minTime ? " pannable" : ""}`} ref={scrollRef} tabIndex={0}
         role="group" aria-label="Прокрутка денежного графика" aria-describedby={helpId}
         onScroll={(event) => {
+          // A resize may clamp native scroll before ResizeObserver supplies the
+          // new chart geometry. Preserve the saved time window until they agree.
+          if (Math.abs(event.currentTarget.clientWidth - (width - MARGIN.left)) > 1 ||
+              Math.abs(event.currentTarget.scrollWidth - chart.canvasWidth) > 1) return;
           const nextOffset = event.currentTarget.scrollLeft;
           windowRef.current = { start: chart.minTime + nextOffset / chart.plotWidth * chart.span,
             atEnd: event.currentTarget.scrollWidth - event.currentTarget.clientWidth - nextOffset <= 1 };
