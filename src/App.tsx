@@ -485,31 +485,58 @@ function App() {
   return (
     <main className="app">
       <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">
-            <HeartPulse size={24} />
+        <nav className="domain-band" aria-label="Разделы дашборда">
+          <div className="segmented domain-control">
+            <button
+              type="button"
+              className={activeDomain === "health" ? "active" : ""}
+              aria-current={activeDomain === "health" ? "page" : undefined}
+              onClick={() => navigate("health")}
+            >
+              <HeartPulse size={16} />
+              <span>Здоровье</span>
+            </button>
+            <button
+              type="button"
+              className={activeDomain === "money" ? "active" : ""}
+              aria-current={activeDomain === "money" ? "page" : undefined}
+              onClick={() => navigate("money")}
+            >
+              <Wallet size={16} />
+              <span>Деньги</span>
+            </button>
+            <button
+              type="button"
+              className={activeDomain === "relationships" ? "active" : ""}
+              aria-current={activeDomain === "relationships" ? "page" : undefined}
+              onClick={() => navigate("relationships")}
+            >
+              <HeartHandshake size={16} />
+              <span>Отношения</span>
+            </button>
+            <button
+              type="button"
+              className={activeDomain === "sport" ? "active" : ""}
+              aria-current={activeDomain === "sport" ? "page" : undefined}
+              onClick={() => navigate("sport")}
+            >
+              <Dumbbell size={16} />
+              <span>Спорт</span>
+            </button>
           </div>
-          <div>
-            <h1>Life Dashboard</h1>
-          </div>
-        </div>
-
-        <div className="status-strip">
-          <div className={socketConnected ? "live-dot online" : "live-dot"} aria-hidden="true" />
-          <span className="connection-status" role="status" title={statusText(socketConnected, lastEventAt)}>
-            {socketConnected ? "На связи" : "Нет связи"}
-          </span>
-          <button
-            className="icon-button"
-            type="button"
-            onClick={() => refresh()}
-            disabled={isRefreshing}
-            aria-label="Обновить"
-            title="Обновить"
-          >
-            <RefreshCw className={isRefreshing ? "spin" : undefined} size={18} />
-          </button>
-        </div>
+        </nav>
+        <button
+          className={`icon-button refresh-button ${socketConnected && !error ? "online" : "offline"}`}
+          type="button"
+          onClick={() => refresh()}
+          disabled={isRefreshing}
+          aria-label={`Обновить · ${error ? "Ошибка обновления" : statusText(socketConnected, lastEventAt)}`}
+          aria-busy={isRefreshing}
+          title={isRefreshing ? "Обновление…" : `Обновить · ${error ? "Ошибка обновления" : statusText(socketConnected, lastEventAt)}`}
+        >
+          <RefreshCw className={isRefreshing ? "spin" : undefined} size={18} />
+        </button>
+        <span className="sr-only" role="status">{isRefreshing ? "Обновление…" : error ? "Ошибка обновления" : statusText(socketConnected, lastEventAt)}</span>
       </header>
 
       {error ? (
@@ -519,50 +546,9 @@ function App() {
         </section>
       ) : null}
 
-      <nav className="domain-band" aria-label="Разделы дашборда">
-        <div className="segmented domain-control">
-          <button
-            type="button"
-            className={activeDomain === "health" ? "active" : ""}
-            aria-current={activeDomain === "health" ? "page" : undefined}
-            onClick={() => navigate("health")}
-          >
-            <HeartPulse size={16} />
-            <span>Здоровье</span>
-          </button>
-          <button
-            type="button"
-            className={activeDomain === "money" ? "active" : ""}
-            aria-current={activeDomain === "money" ? "page" : undefined}
-            onClick={() => navigate("money")}
-          >
-            <Wallet size={16} />
-            <span>Деньги</span>
-          </button>
-          <button
-            type="button"
-            className={activeDomain === "relationships" ? "active" : ""}
-            aria-current={activeDomain === "relationships" ? "page" : undefined}
-            onClick={() => navigate("relationships")}
-          >
-            <HeartHandshake size={16} />
-            <span>Отношения</span>
-          </button>
-          <button
-            type="button"
-            className={activeDomain === "sport" ? "active" : ""}
-            aria-current={activeDomain === "sport" ? "page" : undefined}
-            onClick={() => navigate("sport")}
-          >
-            <Dumbbell size={16} />
-            <span>Спорт</span>
-          </button>
-        </div>
-      </nav>
-
       <div className="page-heading">
-        <h2>{DOMAIN_LABELS[activeDomain]}</h2>
-        <span>{new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(today)}</span>
+        <h1>{DOMAIN_LABELS[activeDomain]}</h1>
+        {activeDomain !== "money" && <span>{new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(today)}</span>}
       </div>
 
       {activeDomain === "money" ? (

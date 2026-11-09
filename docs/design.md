@@ -11,7 +11,9 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
 
 ## Responsive behavior
 
-- Desktop: compact header and horizontal domain navigation; charts and details
+- Desktop: horizontal domain navigation and a refresh button share the header.
+  The refresh button shows connection/update status in green or red, with an
+  accessible label and tooltip. Charts and details
   share columns where space allows, with independent panel heights.
 - Phone (up to 760px): four persistent bottom destinations, safe-area padding,
   compact header, two-column metrics and vertically stacked panels. Navigation
@@ -45,7 +47,7 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   Show an account connection state before authorization and preserve cached
   records with explicit feedback when an update fails. Technical configuration
   stays in the integration documentation.
-- Money shows the shared budget, two personal savings balances, the trend chart, snapshot composition and editable history. Contributions follow Money.md automatically, with one skipped Diana contribution on 15 October 2026 and a manual snapshot correction that day. The historical chart retains the original «Несгораемая сумма» series and its values. Total credit-card debt comes from ZenMoney, including Diana’s cards.
+- Money shows the shared budget, two personal savings balances, the trend chart, snapshot composition and editable history. Contributions follow Money.md automatically, with one skipped Diana contribution on 15 October 2026 and a manual snapshot correction that day. The historical chart retains the original «Несгораемая сумма» series and its values. Its scales are 1, 3, 6 and 12 calendar months and all time; shorter windows scroll natively with trackpad/touch inertia and mouse dragging while the value axis stays fixed. Arrow keys/Home/End inspect snapshots, Enter selects one and Shift+arrows pan the window. Total credit-card debt comes from ZenMoney, including Diana’s cards.
 - Money history retains one data/editing path: desktop table, labeled mobile
   record cards. Inputs and actions remain reachable without horizontal scrolling.
 - On phones, choosing a sport calendar day moves to the entry controls, with

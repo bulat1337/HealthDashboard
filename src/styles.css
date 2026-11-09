@@ -122,33 +122,6 @@ button {
   margin-bottom: 20px;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  box-shadow: none;
-}
-
-.brand h1 {
-  margin: 0;
-  color: var(--ink-blue);
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.05;
-  letter-spacing: 0;
-}
-
-.brand span,
 .panel-heading span,
 .stats-list dt,
 .latest-metrics-list dt,
@@ -161,31 +134,6 @@ button {
   font-size: 13px;
   line-height: 1.25;
   overflow-wrap: anywhere;
-}
-
-.status-strip {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: var(--shadow-soft);
-  white-space: nowrap;
-}
-
-.live-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--coral);
-}
-
-.live-dot.online {
-  background: var(--green);
-  box-shadow: 0 0 0 5px rgba(45, 125, 70, 0.12);
 }
 
 .icon-button {
@@ -1082,12 +1030,6 @@ select:focus-visible {
 
 .money-metrics {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.money-snapshot-note {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 13px;
 }
 
 @media (min-width: 1280px) {
@@ -2034,10 +1976,6 @@ select:focus-visible {
     flex-direction: column;
   }
 
-  .status-strip {
-    justify-content: space-between;
-  }
-
   .segmented {
     overflow-x: auto;
   }
@@ -2174,10 +2112,6 @@ select:focus-visible {
     padding: 12px;
   }
 
-  .brand h1 {
-    font-size: 19px;
-  }
-
   .relationship-big-counter strong {
     font-size: 42px;
   }
@@ -2201,11 +2135,6 @@ select:focus-visible {
 }
 
 /* Shared dashboard hierarchy and touch interactions. */
-.status-strip {
-  border: 0;
-  background: transparent;
-  font-size: 13px;
-}
 .topbar {
   padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
@@ -2217,7 +2146,7 @@ select:focus-visible {
   gap: 16px;
   margin: 24px 0 18px;
 }
-.page-heading h2 {
+.page-heading h1 {
   margin: 0;
   font-size: 30px;
   font-weight: 600;
@@ -2376,40 +2305,10 @@ select {
     padding-bottom: 14px;
     margin-bottom: 0;
   }
-  .brand {
-    gap: 8px;
-    min-width: 0;
-  }
-  .brand-mark {
-    width: 32px;
-    height: 32px;
-  }
-  .brand-mark svg {
-    width: 20px;
-    height: 20px;
-  }
-  .brand h1 {
-    font-size: 19px;
-    letter-spacing: -0.025em;
-  }
-  .status-strip {
-    gap: 8px;
-  }
-  .connection-status {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-  .live-dot {
-    width: 7px;
-    height: 7px;
-  }
   .page-heading {
     margin: 20px 0 16px;
   }
-  .page-heading h2 {
+  .page-heading h1 {
     font-size: 26px;
   }
   .domain-band {
@@ -3337,4 +3236,30 @@ select {
   .fitbit-sleep-row-label { font-size: 13px; }
   .fitbit-quality-label { flex-wrap: wrap; }
   .fitbit-quality-label small { max-width: none; }
+}
+
+/* Compact navigation and connection state on the refresh action. */
+.topbar > .domain-band { margin-bottom: 0; min-width: 0; }
+.refresh-button { flex: 0 0 44px; }
+.refresh-button.online { color: var(--green); background: #ecfdf3; }
+.refresh-button.offline { color: var(--coral); background: #fef2f2; }
+.refresh-button.online:hover { background: var(--green); color: #fff; }
+.refresh-button.offline:hover { background: var(--coral); color: #fff; }
+.money-analysis > .panel-heading { justify-content: flex-end; }
+.money-chart-scales { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; max-width: 430px; }
+.money-chart-scales button { min-width: 0; min-height: 44px; padding-inline: 6px; white-space: normal; }
+.money-chart-interval { margin: 10px 0 12px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.money-chart-shell { display: flex; }
+.money-chart-axis { display: block; flex-shrink: 0; pointer-events: none; }
+.money-chart-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: auto; }
+.money-chart-scroll::-webkit-scrollbar { display: none; }
+.money-chart-scroll .money-trend-chart { max-width: none; touch-action: auto; user-select: none; }
+.money-chart-scroll.pannable { cursor: grab; }
+.money-chart-scroll.pannable:active { cursor: grabbing; }
+.money-chart-scroll:focus-visible { outline-offset: -3px; border-radius: 4px; }
+.money-chart-window-empty { position: absolute; inset: 45% 12px auto 72px; text-align: center; color: var(--muted); font-size: 13px; pointer-events: none; }
+@media (max-width: 760px) {
+  .topbar { justify-content: flex-end; }
+  .money-chart-scales { overflow: visible; }
+  .money-chart-scales button { flex: initial; font-size: 12px; }
 }

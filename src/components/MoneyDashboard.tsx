@@ -15,7 +15,7 @@ import {
   X
 } from "lucide-react";
 import { updateMoneyRecordData } from "../api";
-import { formatDateShort, formatDateTime, formatNumber } from "../stats";
+import { formatDateShort, formatNumber } from "../stats";
 import type { MoneyData, MoneyRecord } from "../types";
 import { MONEY_SERIES, MoneyTrendChart } from "./MoneyTrendChart";
 
@@ -354,7 +354,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
 
   return (
     <>
-      {money.savings && <p className="money-snapshot-note">Банковский срез: {formatDateShort(latest.dateIso)}. Личные накопления учитываются с {formatDateShort(money.savings.startDate)} по новому плану.</p>}
       <section className="quick-metrics money-metrics" aria-label="Денежные метрики">
         {tiles.map((tile) => {
           const Icon = tile.icon;
@@ -402,14 +401,8 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
           </div>
         </article>
 
-        <aside className="panel analysis-panel money-analysis">
+        <aside className="panel analysis-panel money-analysis" aria-label="Распределение денег">
           <div className="panel-heading compact">
-            <div>
-              <h2>Срез</h2>
-              <span>
-                {formatDateShort(activeRecord.dateIso)} · строка #{activeRecord.rowId}
-              </span>
-            </div>
             <div className="money-date-badge">
               <Banknote size={18} />
               <strong>{formatMoney(activeRecord.freeAmount)}</strong>
@@ -450,10 +443,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
               <dd>{formatPercent(money.summary.freeShare)}</dd>
             </div>
             <div>
-              <dt>Инвест. доля</dt>
-              <dd>{formatPercent(money.summary.investmentShare)}</dd>
-            </div>
-            <div>
               <dt>Долг / сумма</dt>
               <dd>{formatPercent(money.summary.debtToTotalShare)}</dd>
             </div>
@@ -474,10 +463,6 @@ export function MoneyDashboard({ money, onMoneyDataUpdated }: MoneyDashboardProp
           <div className="panel-heading compact">
             <div>
               <h2>{showAllRecords ? "Все срезы" : "Последние срезы"}</h2>
-              <span>
-                Показано {visibleRows.length} из {money.records.length} · обновлено{" "}
-                {formatDateTime(money.sourceMtimeMs ? new Date(money.sourceMtimeMs).toISOString() : null)}
-              </span>
             </div>
             <button
               className="money-secondary-button"
