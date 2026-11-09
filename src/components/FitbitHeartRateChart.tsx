@@ -173,26 +173,3 @@ export function FitbitHeartRateChart({ day }: { day: FitbitDay | undefined }) {
     </> : <p className="fitbit-panel-empty">Детализация пульса по времени пока не получена. График появится после синхронизации измерений Fitbit.</p>}
   </article>;
 }
-
-export function FitbitSleepWeek({ days, date }: { days: FitbitDay[]; date: string }) {
-  const end = Date.parse(`${date}T12:00:00Z`);
-  const week = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(end + (index - 6) * 86_400_000).toISOString().slice(0, 10);
-    return { date: day, minutes: days.find((entry) => entry.date === day)?.sleep?.minutesAsleep ?? null };
-  });
-  const present = week.flatMap((day) => day.minutes == null ? [] : [day.minutes]);
-  if (!present.length) return null;
-  const min = Math.min(...present) - 30, max = Math.max(...present) + 30;
-  const x = (index: number) => 8 + index * 30;
-  const y = (minutes: number) => 49 - (minutes - min) / (max - min) * 42;
-  return <div className="fitbit-sleep-week" aria-label="Продолжительность сна за 7 дней">
-    <svg viewBox="0 0 196 58" role="img" aria-label="Недельная динамика сна">
-      <line x1="8" x2="188" y1="49" y2="49" stroke="var(--line)" strokeDasharray="2 4" />
-      {week.map((day, index) => day.minutes != null && <g key={day.date}>
-        {index > 0 && week[index - 1].minutes != null && <line x1={x(index - 1)} x2={x(index)} y1={y(week[index - 1].minutes!)} y2={y(day.minutes)} stroke="var(--primary-2)" strokeWidth="2" />}
-        <circle cx={x(index)} cy={y(day.minutes)} r={index === 6 ? 4 : 3} fill={index === 6 ? "var(--primary)" : "var(--primary-2)"}><title>{day.date}: {Math.round(day.minutes)} мин</title></circle>
-      </g>)}
-    </svg>
-    <div>{week.map((day) => <span className={day.date === date ? "selected" : ""} key={day.date}>{new Intl.DateTimeFormat("ru-RU", { weekday: "narrow", timeZone: "UTC" }).format(new Date(`${day.date}T12:00:00Z`))}</span>)}</div>
-  </div>;
-}

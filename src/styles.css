@@ -3276,10 +3276,10 @@ select {
 .fitbit-sleep-details { grid-column: 2; grid-row: 1 / span 3; }
 .fitbit-heart-panel { grid-column: 1; grid-row: 1; }
 .fitbit-trend-panel { grid-column: 1; grid-row: 2; }
-.fitbit-sleep-week { grid-column: 1 / -1; width: 100%; max-width: 230px; margin-top: 12px; }
-.metric-tile .fitbit-sleep-week svg { width: 100%; height: 56px; display: block; padding: 0; box-sizing: border-box; background: transparent; border-radius: 0; }
-.fitbit-sleep-week > div { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 11px; text-transform: uppercase; }
-.fitbit-sleep-week .selected { color: var(--primary); font-weight: 700; }
+.fitbit-metric-week { grid-column: 1 / -1; align-self: end; width: 100%; max-width: 230px; margin-top: 12px; }
+.metric-tile .fitbit-metric-week svg { width: 100%; height: auto; display: block; padding: 0; box-sizing: border-box; background: transparent; border-radius: 0; }
+.fitbit-metric-week-labels { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.fitbit-metric-week .selected { color: var(--primary); font-weight: 700; }
 .fitbit-sleep-timeline { margin-top: 24px; }
 .fitbit-sleep-row { margin-bottom: 19px; }
 .fitbit-sleep-row-label { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 7px; font-size: 14px; line-height: 1.4; }

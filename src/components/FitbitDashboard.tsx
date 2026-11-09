@@ -16,7 +16,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { connectFitbit, fetchFitbitData, refreshFitbitData } from "../api";
 import type { FitbitDataResponse, FitbitDay } from "../fitbit-types";
 import { formatDateTime, formatNumber } from "../stats";
-import { FitbitHeartRateChart, FitbitSleepWeek } from "./FitbitHeartRateChart";
+import { FitbitHeartRateChart } from "./FitbitHeartRateChart";
+import { FitbitMetricWeek } from "./FitbitMetricWeek";
 import { FitbitSleepDetails } from "./FitbitSleepDetails";
 
 type TrendMetric = "steps" | "sleep" | "restingHeartRate" | "hrv";
@@ -213,6 +214,10 @@ export function FitbitDashboard({
     [profile?.days],
   );
   const selectedDay = dayMap.get(selectedDate);
+  const weekDates = useMemo(
+    () => Array.from({ length: 7 }, (_, index) => dateOffset(selectedDate, index - 6)),
+    [selectedDate],
+  );
   const chartDays = useMemo(
     () =>
       Array.from({ length: range }, (_, index) =>
@@ -464,7 +469,11 @@ export function FitbitDashboard({
                       <span className="metric-unit"> {unit}</span>
                     )}
                   </strong>
-                  {key === "sleep" && <FitbitSleepWeek days={profile?.days ?? []} date={selectedDate} />}
+                  <FitbitMetricWeek
+                    points={weekDates.map((date) => ({ date, value: metricValue(dayMap.get(date), key) }))}
+                    label={label}
+                    formatValue={(value) => `${valueText(value, key)}${unit ? ` ${unit}` : ""}`}
+                  />
                   {value === null && <small>Нет данных за этот день</small>}
                 </button>
               );
