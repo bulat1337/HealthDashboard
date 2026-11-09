@@ -3173,7 +3173,6 @@ select {
 @media (max-width: 960px) {
   .fitbit-connect-features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fitbit-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fitbit-trend-panel { grid-column: 1 / -1; }
   .fitbit-sleep-panel { grid-row: span 2; }
 }
 @media (max-width: 760px) {
@@ -3261,8 +3260,9 @@ select {
   --sleep-rem: #85d1eb;
   --sleep-restless: #3ba76a;
 }
-.fitbit-sleep-details { grid-column: 2; grid-row: 1 / span 4; }
-.fitbit-heart-panel { grid-column: 1; }
+.fitbit-sleep-details { grid-column: 2; grid-row: 1 / span 3; }
+.fitbit-heart-panel { grid-column: 1; grid-row: 1; }
+.fitbit-trend-panel { grid-column: 1; grid-row: 2; }
 .fitbit-sleep-week { grid-column: 1 / -1; width: 100%; max-width: 230px; margin-top: 12px; }
 .metric-tile .fitbit-sleep-week svg { width: 100%; height: 56px; display: block; padding: 0; box-sizing: border-box; background: transparent; border-radius: 0; }
 .fitbit-sleep-week > div { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 11px; text-transform: uppercase; }
@@ -3285,7 +3285,6 @@ select {
 .fitbit-sleep-selection { font-size: 12px; color: var(--muted); min-height: 32px; line-height: 1.5; margin: 14px 0 0; }
 .fitbit-sleep-quality { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 22px; }
 .fitbit-sleep-quality h4 { margin: 0; font-size: 17px; font-weight: 500; }
-.fitbit-sleep-quality > .fitbit-subtle { margin-top: 7px; }
 .fitbit-quality-row { margin-top: 23px; }
 .fitbit-quality-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; line-height: 1.45; }
 .fitbit-quality-label strong { display: block; font-weight: 500; margin-top: 4px; }
@@ -3298,36 +3297,31 @@ select {
 .fitbit-quality-range { position: absolute; top: -4px; bottom: -4px; min-width: 12px; border: 1px dashed var(--muted); background: rgba(21, 128, 61, .06); border-radius: 20px; }
 .fitbit-quality-marker { position: absolute; top: 50%; left: var(--quality-value); width: 23px; height: 23px; transform: translate(-50%, -50%); border: 3px solid var(--ink); background: var(--surface); border-radius: 50%; }
 .fitbit-quality-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
-.fitbit-range-explanation { margin-top: 23px; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.fitbit-range-explanation summary { color: var(--primary); cursor: pointer; min-height: 44px; align-content: center; }
-.fitbit-range-explanation p { margin: 4px 0 0; }
 .fitbit-heart-summary { display: grid; gap: 6px; }
 .fitbit-heart-summary > strong { font-size: clamp(28px, 4vw, 40px); font-weight: 500; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .fitbit-heart-summary > strong span { font-size: 14px; font-weight: 400; }
 .fitbit-heart-summary > span { color: var(--muted); font-size: 13px; }
-.fitbit-heart-chart { width: 100%; min-width: 0; margin-top: 18px; }
-.fitbit-heart-chart svg { display: block; width: 100%; overflow: visible; touch-action: pan-y; }
+.fitbit-heart-chart { position: relative; width: 100%; min-width: 0; margin-top: 18px; }
+.fitbit-heart-chart svg { display: block; user-select: none; }
+.fitbit-heart-scroll { width: calc(100% - 40px); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: auto; }
+.fitbit-heart-scroll::-webkit-scrollbar { display: none; }
+.fitbit-heart-axis-labels { position: absolute; top: 0; right: 0; width: 40px; height: 254px; pointer-events: none; }
+.fitbit-heart-window-empty { position: absolute; top: 108px; left: 10px; right: 40px; text-align: center; font-size: 11px; color: var(--muted); pointer-events: none; }
 .fitbit-heart-axis { font-family: inherit; font-size: 11px; fill: var(--muted); }
-.fitbit-heart-inspect { display: grid; grid-template-columns: auto minmax(70px, 1fr); gap: 15px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); margin-top: 8px; }
-.fitbit-heart-inspect input { width: 100%; min-width: 0; min-height: 44px; margin: 0; accent-color: var(--primary); cursor: pointer; }
-.fitbit-heart-legend { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
-.fitbit-heart-legend li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.fitbit-heart-legend i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.fitbit-heart-legend li > span { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: auto; font-size: 11px; }
-@media (max-width: 960px) {
-  .fitbit-sleep-details { grid-column: 2; grid-row: 2 / span 3; }
-}
+.fitbit-heart-scales { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; max-width: 370px; margin-top: 18px; }
+.fitbit-heart-scales button { min-height: 44px; padding-inline: 6px; white-space: normal; }
+.fitbit-heart-interval { margin: 12px 0 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fitbit-heart-chart .pannable { cursor: grab; }
+.fitbit-heart-chart .pannable:active { cursor: grabbing; }
+.fitbit-heart-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 4px; }
+.fitbit-heart-tooltip { pointer-events: none; }
+.fitbit-heart-tooltip text { fill: var(--ink); font-family: inherit; font-size: 12px; font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) {
-  .fitbit-sleep-details, .fitbit-heart-panel { grid-column: 1; grid-row: auto; }
-  .fitbit-sleep-details { order: 1; }
-  .fitbit-heart-panel { order: 2; }
+  .fitbit-sleep-details, .fitbit-heart-panel, .fitbit-trend-panel { grid-column: 1; grid-row: auto; }
   .fitbit-detail-panel { order: 3; }
   .fitbit-sleep-week { margin-top: 8px; }
   .metric-tile .fitbit-sleep-week svg { height: 48px; }
   .fitbit-sleep-row-label { font-size: 13px; }
   .fitbit-quality-label { flex-wrap: wrap; }
   .fitbit-quality-label small { max-width: none; }
-  .fitbit-heart-legend { gap: 10px; }
-  .fitbit-heart-legend li { flex-wrap: wrap; }
-  .fitbit-heart-legend li > span { margin-left: 12px; }
 }

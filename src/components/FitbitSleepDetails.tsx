@@ -61,7 +61,6 @@ export function FitbitSleepDetails({ sleep, days, date }: { sleep: FitbitSleep |
         <dl className="fitbit-stage-list">{rows.map((row) => <div key={row.key}><dt><i className={`stage-${row.key}`} />{row.label}</dt><dd>{sleepDuration(row.minutes)}</dd></div>)}</dl>
       </> : <p className="fitbit-subtle">Стадии сна пока недоступны.</p>}
       <div className="fitbit-sleep-quality"><h4>Качество сна</h4>
-        <p className="fitbit-subtle">Сравнение с вашей историей за предыдущие 30 дней.</p>
         {qualities.map(({ key, label }) => {
           const value = quality?.[key] ?? null, range = personalSleepRange(days, date, key);
           const outside = value != null && range && (value < range.min || value > range.max);
@@ -77,11 +76,10 @@ export function FitbitSleepDetails({ sleep, days, date }: { sleep: FitbitSleep |
                 {range && <span className="fitbit-quality-range" style={{ left: `${range.min / max * 100}%`, width: `${(range.max - range.min) / max * 100}%` }} />}
                 <i className="fitbit-quality-marker" />
               </div>
-              <div className="fitbit-quality-caption">{range ? `Обычно ${Math.round(range.min)}–${Math.round(range.max)} мин · ${range.nights} ночей` : "Личный диапазон появится после 7 ночей с данными"}</div>
-            </> : <p className="fitbit-subtle">Fitbit не передал этот показатель.</p>}
+              <div className="fitbit-quality-caption">{range ? `Обычно ${Math.round(range.min)}–${Math.round(range.max)} мин` : "Личный диапазон появится после 7 ночей с данными"}</div>
+            </> : null}
           </div>;
         })}
-        <details className="fitbit-range-explanation"><summary>Как читать диапазоны</summary><p>Пунктир показывает центральные 80% ваших значений за предыдущие 30 дней. Круг — выбранную ночь. Это сравнение с личной историей; медицинские нормы и оценка сна Google Health здесь не рассчитываются.</p></details>
       </div>
     </>}
   </article>;

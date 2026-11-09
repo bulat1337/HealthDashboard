@@ -31,6 +31,14 @@ measurements and Lucide for controls. Prefer borders to broad decorative shadows
   to the local waking date. Sleep stages use source intervals on separate colored
   tracks; older summary-only caches show durations. Intraday heart rate uses
   minute means and min/max envelopes, source zone thresholds and visible data gaps.
+  The heart chart precedes the trend chart (steps by default), with sleep in the
+  right column on desktop. Heart chart scales are 24, 12, 6, 3 and 1 hour;
+  shorter windows use native horizontal scrolling with trackpad gestures, touch
+  swipes and inertia within the selected day. Keep subpixel scroll precision,
+  vertical page scrolling and fixed y-axis labels; omit pan buttons.
+  Values appear on chart inspection; keyboard arrows/Home/End inspect points,
+  Shift+arrows pan the window. Keep the chart free of an inspection slider,
+  a separate zone legend and explanatory footer.
   Sleep quality gauges compare with the central 80% of the user's previous
   30 days (at least seven nights), with explicit labels for missing history.
   Google Health sleep scores and clinical reference ranges are not inferred.

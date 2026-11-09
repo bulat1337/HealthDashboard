@@ -447,6 +447,7 @@ export function FitbitDashboard({
             })}
           </div>
           <div className="fitbit-detail-grid">
+            <FitbitHeartRateChart key={`${userId}:${selectedDate}:heart`} day={selectedDay} />
             <article className="panel fitbit-trend-panel" id={chartId}>
               <div className="panel-heading">
                 <div>
@@ -539,7 +540,6 @@ export function FitbitDashboard({
               )}
             </article>
             <FitbitSleepDetails key={`${userId}:${selectedDate}`} sleep={sleep} days={profile?.days ?? []} date={selectedDate} />
-            <FitbitHeartRateChart key={`${userId}:${selectedDate}:heart`} day={selectedDay} />
             <article className="panel fitbit-detail-panel">
               <div className="panel-heading">
                 <h3>Активность</h3>
@@ -568,38 +568,6 @@ export function FitbitDashboard({
                     {selectedDay?.activeZoneMinutes == null
                       ? "—"
                       : `${formatNumber(selectedDay.activeZoneMinutes, 0)} мин`}
-                  </dd>
-                </div>
-              </dl>
-            </article>
-            <article className="panel fitbit-detail-panel">
-              <div className="panel-heading">
-                <h3>Показатели за ночь</h3>
-                <Activity size={20} />
-              </div>
-              <dl className="fitbit-detail-list">
-                <div>
-                  <dt>Кислород в крови · SpO₂</dt>
-                  <dd>
-                    {selectedDay?.spo2 == null
-                      ? "—"
-                      : `${formatNumber(selectedDay.spo2, 1)} %`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Частота дыхания</dt>
-                  <dd>
-                    {selectedDay?.respiratoryRate == null
-                      ? "—"
-                      : `${formatNumber(selectedDay.respiratoryRate, 1)} /мин`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Температура кожи к базовой</dt>
-                  <dd>
-                    {selectedDay?.temperatureDeviation == null
-                      ? "—"
-                      : `${selectedDay.temperatureDeviation > 0 ? "+" : ""}${formatNumber(selectedDay.temperatureDeviation, 1)} °C`}
                   </dd>
                 </div>
               </dl>
