@@ -9,6 +9,7 @@ import {
   Link2,
   Moon,
   RefreshCw,
+  Scale,
   Watch,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -321,6 +322,29 @@ export function FitbitDashboard({
         </p>
       ))}
 
+      {isLinked && profile?.scaleSync && (
+        <div className="fitbit-notice" role="status" aria-label="Передача измерений Xiaomi в Fitbit">
+          <Scale size={18} aria-hidden="true" />
+          <span>
+            <strong>Xiaomi → Fitbit</strong>{" · "}
+            {profile.scaleSync.status === "permission_required"
+              ? "Разрешите передачу измерений из весов."
+              : profile.scaleSync.total === 0
+                ? "Новые измерения появятся здесь после взвешивания."
+                : `${profile.scaleSync.status === "syncing" ? "Отправляем" : "Передано"} ${profile.scaleSync.synced} из ${profile.scaleSync.total} записей.`}
+            {profile.scaleSync.error && <> {profile.scaleSync.error}</>}
+            {profile.scaleSync.skipped > 0 && <> Пропущено измерений с неполными данными: {profile.scaleSync.skipped}.</>}
+            <br />
+            <small>Вес и процент жира передаются как показатели. Остальной состав тела сохраняется в примечании к весу; расчётные значения помечены.</small>
+          </span>
+          {profile.scaleSync.status === "permission_required" && profile.canConnect ? (
+            <button type="button" onClick={() => void connect()} disabled={syncing}>Разрешить передачу</button>
+          ) : profile.scaleSync.status === "error" ? (
+            <button type="button" onClick={() => void refresh()} disabled={syncing}>Повторить отправку</button>
+          ) : null}
+        </div>
+      )}
+
       {!isLinked ? (
         <div className="panel fitbit-connect-panel">
           <div className="fitbit-connect-copy">
@@ -361,8 +385,8 @@ export function FitbitDashboard({
               Пульс и HRV
             </span>
             <span>
-              <Activity size={17} />
-              История показателей
+              <Scale size={17} />
+              Xiaomi → Fitbit
             </span>
           </div>
         </div>

@@ -8,6 +8,8 @@ import { once } from "node:events";
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
 import { createFitbitIntegration } from "../server/fitbit.js";
+import { SCALE_WRITE_SCOPE } from "../server/fitbit-scale.js";
+import type { RawMeasurement } from "../server/health-ingest.js";
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "fitbit-test-"));
 const users = [
@@ -52,8 +54,10 @@ process.env.FITBIT_OAUTH_CREDENTIALS_FILE = credentials;
 process.env.FITBIT_PROFILES_FILE = profiles;
 process.env.FITBIT_REDIRECT_URI = `${origin}/api/fitbit/oauth/callback`;
 process.env.FITBIT_STATE_DIR = path.join(directory, "state");
+const scaleMeasurements: RawMeasurement[] = [];
 const integration = createFitbitIntegration({
   getUsers: () => users,
+  getScaleMeasurements: () => scaleMeasurements,
   onUpdate: () => {},
   onExercises: (userId, exercises, window) => calendarSyncs.push({ userId, exercises, window }),
 });
@@ -67,7 +71,7 @@ let denyScope = false;
 let denyExercise = false;
 let unauthorized = false;
 let requested: string[] = [];
-const scope = [
+let scope = [
   "activity_and_fitness",
   "sleep",
   "health_metrics_and_measurements",
@@ -76,15 +80,18 @@ const scope = [
     (group) => `https://www.googleapis.com/auth/googlehealth.${group}.readonly`,
   )
   .join(" ");
-let grantedScopes = scope;
 let deletionOperation: Record<string, unknown> = { done: true, response: {} };
 const providerDeletes: unknown[] = [];
+const scaleWrites: { method: string; body: Record<string, unknown> }[] = [];
+const scaleRemote: Record<string, unknown>[] = [];
+let scaleWriteStatus = 200;
+let blockScaleWrite: (() => Promise<void>) | undefined;
 mock.method(OAuth2Client.prototype, "getToken", async () => ({
   tokens: {
     access_token: "fixture-access",
     refresh_token: "fixture-refresh",
     id_token: "fixture-id",
-    scope: grantedScopes,
+    scope,
     expiry_date: Date.now() + 3600_000,
   },
 }));
@@ -118,6 +125,20 @@ mock.method(
       assert.equal(init?.method, "POST");
       providerDeletes.push(JSON.parse(String(init?.body)));
       return Response.json(deletionOperation);
+    }
+    if (/\/dataTypes\/(weight|body-fat)\/dataPoints/.test(url.pathname)) {
+      if (!init?.method || init.method === "GET")
+        return Response.json({ dataPoints: scaleRemote.filter((point) => String(point.name).split("/")[3] === url.pathname.split("/")[5]) });
+      if (scaleWriteStatus !== 200) return new Response("{}", { status: scaleWriteStatus });
+      if (blockScaleWrite) { const block = blockScaleWrite; blockScaleWrite = undefined; await block(); }
+      const body = JSON.parse(String(init.body));
+      scaleWrites.push({ method: init.method, body });
+      const type = url.pathname.split("/")[5];
+      const point = { ...body, name: body.name ?? `users/health-a/dataTypes/${type}/dataPoints/provider-${scaleWrites.length}`,
+        dataSource: { ...body.dataSource, application: { googleWebClientId: "test.apps.googleusercontent.com" } } };
+      if (init.method === "POST") scaleRemote.push(point);
+      else scaleRemote.splice(scaleRemote.findIndex((item) => item.name === point.name), 1, point);
+      return Response.json({ done: true, response: point });
     }
     if (url.pathname.includes("steps")) {
       const body = JSON.parse(String(init?.body));
@@ -206,7 +227,8 @@ test("Fitbit OAuth requires configured origin, known profile, state cookie and P
   const auth = await begin();
   assert.equal(auth.url.searchParams.get("code_challenge_method"), "S256");
   assert.equal(auth.url.searchParams.get("access_type"), "offline");
-  assert.doesNotMatch(auth.url.searchParams.get("scope")!, /writeonly/);
+  assert.ok(auth.url.searchParams.get("scope")!.split(" ").includes(SCALE_WRITE_SCOPE));
+  assert.doesNotMatch(auth.url.searchParams.get("scope")!, /activity_and_fitness\.writeonly/);
   assert.equal(
     new URL(
       (await callback(auth, "")).headers.get("location")!,
@@ -243,6 +265,8 @@ test("Fitbit connects only the selected profile, syncs v4 and rejects callback r
     await new Promise((resolve) => setTimeout(resolve, 10));
   const data = integration.snapshot();
   assert.equal(data.profiles[0].status, "connected");
+  assert.equal(data.profiles[0].scaleSync?.status, "permission_required");
+  assert.equal(scaleWrites.length, 0);
   assert.ok(data.profiles[0].days.some((day) => day.steps === 1234));
   assert.equal(data.profiles[1].status, "disconnected");
   assert.equal(data.profiles[1].days.length, 0);
@@ -336,7 +360,10 @@ test("Fitbit deletion requires explicit write permission and reports confirmed, 
   assert.equal(providerDeletes.length, 0);
   const auth = await begin("User A", true);
   assert.ok(auth.url.searchParams.get("scope")!.includes("activity_and_fitness.writeonly"));
-  grantedScopes = `${scope} https://www.googleapis.com/auth/googlehealth.activity_and_fitness.writeonly`;
+  assert.ok(auth.url.searchParams.get("scope")!.split(" ").includes(SCALE_WRITE_SCOPE));
+  assert.equal(auth.url.searchParams.get("include_granted_scopes"), "true");
+  const previousScope = scope;
+  scope += " https://www.googleapis.com/auth/googlehealth.activity_and_fitness.writeonly";
   try {
     assert.equal(new URL((await callback(auth)).headers.get("location")!).searchParams.get("fitbit"), "connected");
     for (let attempt = 0; integration.snapshot().profiles[0].status === "syncing" && attempt < 100; attempt++)
@@ -352,10 +379,101 @@ test("Fitbit deletion requires explicit write permission and reports confirmed, 
     assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "failed");
     denyExercise = true;
     assert.equal((await integration.deleteExercises(users[0].id, ids)).status, "failed");
-  } finally { grantedScopes = scope; denyExercise = false; deletionOperation = { done: true, response: {} }; }
+  } finally { scope = previousScope; denyExercise = false; deletionOperation = { done: true, response: {} }; }
+});
+
+test("Fitbit write consent exports the selected person's history, exposes progress, and preserves receipts on reconnect", async () => {
+  denyScope = false;
+  scaleMeasurements.push(
+    { user: "User A", measured_at_unix_seconds: 1782887400, metrics: { weight_kg: 72.35, body_fat_percent: 18.7, muscle_mass_kg: 53 } },
+    { user: "User B", measured_at_unix_seconds: 1782887400, metrics: { weight_kg: 61.5 } },
+  );
+  scope += ` ${SCALE_WRITE_SCOPE}`;
+  const auth = await begin();
+  assert.equal(new URL((await callback(auth)).headers.get("location")!).searchParams.get("fitbit"), "connected");
+  await waitForSync();
+  assert.equal(scaleWrites.length, 2);
+  assert.equal(integration.snapshot().profiles[0].scaleSync?.status, "synced");
+  assert.equal(integration.snapshot().profiles[0].scaleSync?.synced, 2);
+  assert.ok(scaleWrites.some((write) => (write.body.weight as { weightGrams?: number })?.weightGrams === 72350));
+  assert.doesNotMatch(JSON.stringify(scaleWrites), /61500/);
+  const reconnect = await begin();
+  await callback(reconnect);
+  await waitForSync();
+  assert.equal(scaleWrites.length, 2, "reauthorization retains provider receipts");
+  assert.doesNotMatch(JSON.stringify(integration.snapshot()), /fixture-access|fixture-refresh|client_secret|Измерение:/);
+});
+
+async function waitForSync() {
+  for (let attempt = 0; integration.snapshot().profiles[0].status === "syncing" && attempt < 100; attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.notEqual(integration.snapshot().profiles[0].status, "syncing");
+}
+function allowManualRefresh() {
+  const files = fs.readdirSync(process.env.FITBIT_STATE_DIR!).map((name) => path.join(process.env.FITBIT_STATE_DIR!, name));
+  const filename = files.find((file) => JSON.parse(fs.readFileSync(file, "utf8")).subject === "subject-a")!;
+  const stored = JSON.parse(fs.readFileSync(filename, "utf8"));
+  stored.lastAttemptAt = "2026-01-01T00:00:00Z";
+  fs.writeFileSync(filename, JSON.stringify(stored));
+}
+
+test("Fitbit new measurements and changed scale reports export on refresh; write denial preserves wearable reads", async () => {
+  scaleMeasurements[0].metrics!.muscle_mass_kg = 54;
+  allowManualRefresh();
+  await nativeFetch(`${origin}/api/fitbit/User%20A/refresh`, { method: "POST" });
+  await waitForSync();
+  assert.equal(scaleWrites.length, 3);
+  assert.equal(scaleWrites[2].method, "PATCH");
+  scaleMeasurements.push({ user: "User A", measured_at_unix_seconds: 1782973800, metrics: { weight_kg: 72.1 } });
+  scaleWriteStatus = 403;
+  allowManualRefresh();
+  await nativeFetch(`${origin}/api/fitbit/User%20A/refresh`, { method: "POST" });
+  await waitForSync();
+  const profile = integration.snapshot().profiles[0];
+  assert.equal(profile.status, "connected");
+  assert.equal(profile.scaleSync?.status, "permission_required");
+  assert.equal(profile.scaleSync?.pending, 1);
+  assert.ok(profile.days.some((day) => day.steps === 1234));
+  scaleWriteStatus = 200;
+  allowManualRefresh();
+  await nativeFetch(`${origin}/api/fitbit/User%20A/refresh`, { method: "POST" });
+  await waitForSync();
+  assert.equal(integration.snapshot().profiles[0].scaleSync?.pending, 0);
+  assert.equal(scaleWrites.length, 4);
+});
+
+test("Fitbit source-change notification exports a new weigh-in in the background", async () => {
+  scaleMeasurements.push({ user: "User A", measured_at_unix_seconds: 1783060200, metrics: { weight_kg: 71.9 } });
+  integration.scaleDataChanged();
+  for (let attempt = 0; scaleWrites.length < 5 && attempt < 150; attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  await waitForSync();
+  assert.equal(scaleWrites.length, 5);
+  assert.equal(integration.snapshot().profiles[0].scaleSync?.pending, 0);
+});
+
+test("Fitbit ingests arriving during an upload are sent and manual wearable refresh waits for its turn", async () => {
+  let release!: () => void, began!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { began = resolve; });
+  blockScaleWrite = async () => { began(); await held; };
+  scaleMeasurements.push({ user: "User A", measured_at_unix_seconds: 1783146600, metrics: { weight_kg: 71.8 } });
+  integration.scaleDataChanged();
+  await started;
+  requested = [];
+  await nativeFetch(`${origin}/api/fitbit/User%20A/refresh`, { method: "POST" });
+  scaleMeasurements.push({ user: "User A", measured_at_unix_seconds: 1783233000, metrics: { weight_kg: 71.7 } });
+  integration.scaleDataChanged();
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  release();
+  await waitForSync();
+  assert.equal(scaleWrites.length, 7);
+  assert.equal(integration.snapshot().profiles[0].scaleSync?.pending, 0);
+  assert.ok(requested.some((endpoint) => endpoint.includes("steps/dataPoints:dailyRollUp")), "manual refresh also fetches wearable data");
 });
 
 test("Fitbit connects a second account independently and keeps expired access isolated", async () => {
+  scope = scope.replace(` ${SCALE_WRITE_SCOPE}`, "");
   denyScope = false;
   verifiedEmail = "user1@example.com";
   verifiedSubject = "subject-b";

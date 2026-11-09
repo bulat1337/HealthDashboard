@@ -87,6 +87,16 @@ export type FitbitProfile = {
   warnings: string[];
   days: FitbitDay[];
   exercises: FitbitExercise[];
+  scaleSync?: {
+    status: "disconnected" | "permission_required" | "syncing" | "pending" | "synced" | "error";
+    total: number;
+    synced: number;
+    pending: number;
+    skipped: number;
+    lastSyncAt: string | null;
+    lastMeasurementAt: string | null;
+    error: string | null;
+  };
 };
 
 export type FitbitDataResponse = {

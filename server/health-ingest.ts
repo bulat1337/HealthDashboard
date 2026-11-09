@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWrite } from "./atomic-write.js";
 
-type RawMeasurement = {
+export type RawMeasurement = {
   row_id?: number;
   user?: string;
   measured_at?: string;

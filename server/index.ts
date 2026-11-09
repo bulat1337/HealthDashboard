@@ -1947,6 +1947,11 @@ app.use("/local-assets", express.static(LOCAL_ASSETS_DIR));
 
 const fitbit = createFitbitIntegration({
   getUsers: () => { try { return getCachedData()?.users ?? []; } catch { return []; } },
+  getScaleMeasurements: () => {
+    const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) as RawData;
+    if (!Array.isArray(raw.measurements)) throw new Error("Missing Xiaomi measurements");
+    return raw.measurements;
+  },
   onUpdate: () => broadcast({ type: "fitbit-data-updated", updatedAt: new Date().toISOString() }),
   onExercises: syncFitbitSport
 });
@@ -2005,6 +2010,7 @@ app.post("/api/health-data/measurements", (request, response) => {
 
     if (result.updated) {
       refreshCache();
+      fitbit.scaleDataChanged();
       broadcast({
         type: "health-data-updated",
         event: "ingest",
@@ -2210,7 +2216,7 @@ app.get("/api/status", (_request, response) => {
     dataFile: publicPath(DATA_FILE),
     sourceMtimeMs: stat?.mtimeMs ?? null,
     scale: scaleBridgeStatus(),
-    fitbit: fitbit.snapshot().profiles.map(({ userId, status, lastSyncAt, lastAttemptAt }) => ({ userId, status, lastSyncAt, lastAttemptAt })),
+    fitbit: fitbit.snapshot().profiles.map(({ userId, status, lastSyncAt, lastAttemptAt, scaleSync }) => ({ userId, status, lastSyncAt, lastAttemptAt, scaleSync })),
     money: {
       status: money.status,
       sourceFile: publicPath(MONEY_FILE),
@@ -2289,6 +2295,7 @@ watcher.on("all", (event, changedPath) => {
         return;
       }
       refreshCache();
+      if (changedPath === DATA_FILE) fitbit.scaleDataChanged();
       broadcast({
         type: "health-data-updated",
         event,

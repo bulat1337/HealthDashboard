@@ -9,6 +9,11 @@ import type {
   Credentials,
 } from "google-auth-library";
 import { atomicWrite } from "./atomic-write.js";
+import type { RawMeasurement } from "./health-ingest.js";
+import {
+  emptyScaleExport, exportScalePoints, planScaleExport, SCALE_READ_SCOPE, SCALE_WRITE_SCOPE,
+  ScaleRequestError, type ScaleExportState,
+} from "./fitbit-scale.js";
 import {
   addDays,
   list,
@@ -69,6 +74,7 @@ type StoredProfile = {
   lastAttemptAt: string | null;
   error: string | null;
   warnings: string[];
+  scaleExport?: ScaleExportState;
 };
 type PendingAuth = {
   userId: string;
@@ -170,6 +176,7 @@ export function fitbitErrorMessage(code: string) {
 
 export function createFitbitIntegration(options: {
   getUsers: () => { id: string; name: string }[];
+  getScaleMeasurements?: () => RawMeasurement[];
   onUpdate: () => void;
   onExercises?: (userId: string, exercises: FitbitExercise[], window: { start: string; end: string }) => void;
 }) {
@@ -190,6 +197,9 @@ export function createFitbitIntegration(options: {
   const pending = new Map<string, PendingAuth>();
   const running = new Map<string, Promise<void>>();
   const transientErrors = new Map<string, string>();
+  const scaleReruns = new Set<string>();
+  const fullReruns = new Set<string>();
+  const runningScaleOnly = new Set<string>();
 
   const fileFor = (userId: string) =>
     path.join(
@@ -206,7 +216,8 @@ export function createFitbitIntegration(options: {
       !stored.subject ||
       !stored.tokens ||
       !Array.isArray(stored.days) ||
-      !Array.isArray(stored.exercises)
+      !Array.isArray(stored.exercises) ||
+      (stored.scaleExport && (!stored.scaleExport.records || typeof stored.scaleExport.records !== "object" || Array.isArray(stored.scaleExport.records)))
     )
       throw new FitbitError("storage");
     return stored;
@@ -273,8 +284,42 @@ export function createFitbitIntegration(options: {
           warnings: stored?.warnings ?? [],
           days: stored?.days ?? [],
           exercises: stored?.exercises ?? [],
+          scaleSync: scaleSnapshot(user.id, stored),
         };
       }),
+    };
+  }
+
+  function scaleSnapshot(userId: string, stored: StoredProfile | null): FitbitProfile["scaleSync"] {
+    if (!options.getScaleMeasurements) return undefined;
+    const state = stored?.scaleExport;
+    let total = 0, synced = 0, skipped = 0;
+    let sourceError = false;
+    try {
+      const plan = planScaleExport(options.getScaleMeasurements(), userId, profileConfig(userId)?.timezone ?? "UTC");
+      total = plan.points.length;
+      skipped = plan.skipped;
+      synced = plan.points.filter((point) => state?.records[point.key]?.fingerprint === point.fingerprint && !state.records[point.key]?.pending).length;
+    } catch { sourceError = true; }
+    const scopes = new Set((stored?.tokens.scope ?? "").split(" "));
+    const permission = scopes.has(SCALE_WRITE_SCOPE) && scopes.has(SCALE_READ_SCOPE);
+    const code = sourceError ? "source" : state?.error;
+    const messages: Record<string, string> = {
+      source: "Не удалось прочитать измерения Xiaomi. Отправка повторится после восстановления источника.",
+      scope: "Разрешите передачу измерений Xiaomi через повторное подключение Fitbit.",
+      reauthorize: "Подключите Fitbit снова, чтобы продолжить передачу измерений Xiaomi.",
+      confirming: "Проверяем, сохранил ли Fitbit отправленные измерения. Повторная запись ожидает подтверждения.",
+      invalid: "Fitbit отклонил часть показателей. Остальные измерения продолжают отправляться.",
+      missing: "Запись Fitbit удалена. Восстановим её при следующем обновлении.",
+      rate_limit: "Fitbit ограничил частоту запросов. Отправка продолжится автоматически.",
+      sync: "Не удалось отправить часть измерений Xiaomi. Проверка и отправка повторятся автоматически.",
+    };
+    return {
+      status: !stored ? "disconnected" : !permission || code === "scope" || code === "reauthorize" ? "permission_required"
+        : running.has(userId) ? "syncing" : code && code !== "confirming" ? "error" : synced < total ? "pending" : "synced",
+      total, synced, pending: total - synced, skipped,
+      lastSyncAt: state?.lastSyncAt ?? null, lastMeasurementAt: state?.lastMeasurementAt ?? null,
+      error: code ? messages[code] ?? messages.sync : null,
     };
   }
 
@@ -282,6 +327,7 @@ export function createFitbitIntegration(options: {
     oauth: OAuth2Client,
     endpoint: string,
     body?: unknown,
+    writeMethod?: "POST" | "PATCH",
   ) {
     for (let attempt = 0; attempt < 3; attempt++) {
       let token: string | null | undefined;
@@ -294,16 +340,26 @@ export function createFitbitIntegration(options: {
         throw new FitbitError("sync");
       }
       if (!token) throw new FitbitError("reauthorize");
-      const response = await fetch(`${API}/${endpoint}`, {
-        method: body ? "POST" : "GET",
+      let response: Response;
+      try { response = await fetch(`${API}/${endpoint}`, {
+        method: writeMethod ?? (body ? "POST" : "GET"),
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(25_000),
-      });
+      }); } catch {
+        if (writeMethod) throw new ScaleRequestError("sync");
+        throw new FitbitError("sync");
+      }
       if (response.ok) return object(await response.json());
+      if (writeMethod) {
+        // POSTs have server-assigned IDs and must not be retried after an ambiguous failure.
+        throw new ScaleRequestError(response.status === 401 ? "reauthorize" : response.status === 403 ? "scope"
+          : response.status === 429 ? "rate_limit" : response.status === 400 || response.status === 422 ? "invalid"
+            : response.status === 404 ? "missing" : "sync", response.status >= 400 && response.status < 500 && response.status !== 408);
+      }
       if (response.status === 401) throw new FitbitError("reauthorize");
       if ((response.status === 429 || response.status >= 500) && attempt < 2) {
         const wait = Math.min(
@@ -399,15 +455,17 @@ export function createFitbitIntegration(options: {
     return { source, points };
   }
 
-  async function performSync(userId: string) {
+  async function performSync(userId: string, scaleOnly = false) {
     const config = profileConfig(userId);
     if (!config) return;
     let stored = read(userId);
     if (!stored) return;
     const subject = stored.subject;
-    stored.lastAttemptAt = new Date().toISOString();
-    stored.error = null;
-    write(userId, stored);
+    if (!scaleOnly) {
+      stored.lastAttemptAt = new Date().toISOString();
+      stored.error = null;
+      write(userId, stored);
+    }
     const oauth = await client();
     oauth.setCredentials(stored.tokens);
     oauth.on("tokens", (tokens) => {
@@ -418,6 +476,38 @@ export function createFitbitIntegration(options: {
       }
     });
     try {
+      if (options.getScaleMeasurements && settings) {
+        const granted = new Set((stored.tokens.scope ?? "").split(" "));
+        if (granted.has(SCALE_READ_SCOPE) && granted.has(SCALE_WRITE_SCOPE)) {
+          try {
+            const plan = planScaleExport(options.getScaleMeasurements(), userId, config.timezone);
+            await exportScalePoints({
+              points: plan.points, state: stored.scaleExport ?? emptyScaleExport(), clientId: settings.clientId,
+              request: async (endpoint, method, body) => {
+                try { return await request(oauth, endpoint, body, method === "GET" ? undefined : method); }
+                catch (error) {
+                  if (error instanceof FitbitError) throw new ScaleRequestError(error.code, true);
+                  throw error;
+                }
+              },
+              save: (state) => {
+                const current = read(userId);
+                if (current?.subject !== subject) throw new ScaleRequestError("reauthorize", true);
+                current.scaleExport = state;
+                write(userId, current);
+              },
+            });
+          } catch {
+            const current = read(userId);
+            if (current?.subject === subject) {
+              current.scaleExport ??= emptyScaleExport();
+              current.scaleExport.error = "source";
+              write(userId, current);
+            }
+          }
+        }
+      }
+      if (scaleOnly) return;
       const today = localDate(new Date(), config.timezone);
       const lastDate = stored.lastSyncAt
         ? localDate(new Date(stored.lastSyncAt), config.timezone)
@@ -497,15 +587,33 @@ export function createFitbitIntegration(options: {
     }
   }
 
-  function sync(userId: string) {
-    if (running.has(userId)) return running.get(userId)!;
+  function sync(userId: string, scaleOnly = false) {
+    if (running.has(userId)) {
+      if (scaleOnly) scaleReruns.add(userId);
+      else if (runningScaleOnly.has(userId)) fullReruns.add(userId);
+      return running.get(userId)!;
+    }
+    if (scaleOnly) runningScaleOnly.add(userId);
     const task = Promise.resolve()
-      .then(() => performSync(userId))
+      .then(async () => {
+        await performSync(userId, scaleOnly);
+        // An ingest arriving during a scan gets a second pass with the newest source.
+        while (scaleReruns.has(userId) || fullReruns.has(userId)) {
+          const full = fullReruns.delete(userId);
+          scaleReruns.delete(userId);
+          if (full) runningScaleOnly.delete(userId);
+          else runningScaleOnly.add(userId);
+          await performSync(userId, !full);
+        }
+      })
       .catch(() => {
         transientErrors.set(userId, "storage");
       })
       .finally(() => {
         running.delete(userId);
+        runningScaleOnly.delete(userId);
+        scaleReruns.delete(userId);
+        fullReruns.delete(userId);
         options.onUpdate();
       });
     running.set(userId, task);
@@ -527,9 +635,9 @@ export function createFitbitIntegration(options: {
         return;
       }
       if (
-        !running.has(userId) &&
+        runningScaleOnly.has(userId) || (!running.has(userId) &&
         (!stored.lastAttemptAt ||
-          Date.now() - Date.parse(stored.lastAttemptAt) > 60_000)
+          Date.now() - Date.parse(stored.lastAttemptAt) > 60_000))
       )
         void sync(userId);
       response.status(202).json(snapshot());
@@ -592,6 +700,7 @@ export function createFitbitIntegration(options: {
         url: oauth.generateAuthUrl({
           access_type: "offline",
           scope: ["openid", "email", ...Object.values(SCOPES),
+            ...(options.getScaleMeasurements ? [SCALE_WRITE_SCOPE] : []),
             ...(request.query.workoutDeletion === "true" ? [WORKOUT_WRITE_SCOPE] : [])],
           include_granted_scopes: true,
           state,
@@ -702,6 +811,7 @@ export function createFitbitIntegration(options: {
         lastAttemptAt: null,
         error: null,
         warnings: [],
+        scaleExport: previous?.scaleExport,
       });
       transientErrors.delete(auth.userId);
       void sync(auth.userId);
@@ -729,6 +839,32 @@ export function createFitbitIntegration(options: {
     }
   }
   let timer: NodeJS.Timeout | undefined;
+  let scaleTimer: NodeJS.Timeout | undefined;
+  let stopped = false;
+  async function syncScaleAll() {
+    if (!settings || stopped) return;
+    for (const profile of settings.profiles) {
+      if (!knownUser(profile.userId)) continue;
+      try {
+        const stored = read(profile.userId);
+        if (stored && stored.error !== "reauthorize") await sync(profile.userId, true);
+      } catch { transientErrors.set(profile.userId, "storage"); }
+    }
+  }
+  function scheduleScaleSync() {
+    if (!options.getScaleMeasurements || !settings || stopped || process.env.FITBIT_SYNC_ENABLED === "false") return;
+    if (scaleTimer) clearTimeout(scaleTimer);
+    scaleTimer = setTimeout(() => {
+      scaleTimer = undefined;
+      void syncScaleAll().finally(() => {
+        if (!stopped && !scaleTimer) {
+          scaleTimer = setTimeout(scheduleScaleSync, 60_000);
+          scaleTimer.unref();
+        }
+      });
+    }, 500);
+    scaleTimer.unref();
+  }
   return {
     router,
     snapshot,
@@ -762,12 +898,16 @@ export function createFitbitIntegration(options: {
         return { status: "failed", message: "Календарь очищен. Удаление в Fitbit не удалось. Удалите тренировку в приложении Fitbit; в календарь она больше не загрузится." };
       }
     },
+    scaleDataChanged: scheduleScaleSync,
     start() {
       if (!settings || timer || process.env.FITBIT_SYNC_ENABLED === "false")
         return;
+      stopped = false;
+      scheduleScaleSync();
       // Schedule the next pass after the current one finishes to avoid overlapping scans.
       const run = () => {
         void syncAll().finally(() => {
+          if (stopped) return;
           timer = setTimeout(run, 15 * 60_000);
           timer.unref();
         });
@@ -776,7 +916,11 @@ export function createFitbitIntegration(options: {
       timer.unref();
     },
     stop() {
+      stopped = true;
       if (timer) clearTimeout(timer);
+      if (scaleTimer) clearTimeout(scaleTimer);
+      timer = undefined;
+      scaleTimer = undefined;
     },
   };
 }
