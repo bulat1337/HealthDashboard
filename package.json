@@ -18,6 +18,7 @@
     "money:zenmoney:accounts": "node scripts/zenmoney-money-sync.mjs accounts",
     "money:zenmoney:dry-run": "node scripts/zenmoney-money-sync.mjs dry-run",
     "money:zenmoney:write": "node scripts/zenmoney-money-sync.mjs write",
+    "sport:gym:import": "tsx scripts/import-gym.ts",
     "test": "tsx --test tests/*.test.ts tests/*.test.mjs"
   },
   "dependencies": {

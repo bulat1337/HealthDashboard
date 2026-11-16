@@ -15,6 +15,7 @@ import { readSavingsPlan, savingsOverview, readMoneyManualAdjustments, recordMon
 import { IngestError, ingestScaleMeasurement } from "./health-ingest.js";
 import { createFitbitIntegration } from "./fitbit.js";
 import { deleteSportWorkoutsFile, mergeSportFitbitEntries, migrateSportWalkingFile, readFitbitSportWorkouts, syncFitbitSportFile } from "./sport-fitbit.js";
+import { loggedStrengthFromBody, mergeStrengthEntries, readStrengthSessions, storeStrengthSessions } from "./sport-strength.js";
 import type { SportActivityKey, SportActivityCatalogEntry, SportMaxReps, SportEntry, SportUser, SportData } from "../src/types.js";
 import type { FitbitExercise } from "../src/fitbit-types.js";
 
@@ -1006,9 +1007,12 @@ function loadSportData(): SportData {
         return profile ? { userId: profile.userId, canConnect: profile.canConnect,
           canDeleteWorkouts: profile.canDeleteWorkouts === true } : undefined;
       })(),
-      entries: mergeSportFitbitEntries(
-        normalizeSportEntries(rawUsers[user.id], user.activityTypes),
-        readFitbitSportWorkouts(rawUsers[user.id], user.activityTypes)
+      entries: mergeStrengthEntries(
+        mergeSportFitbitEntries(
+          normalizeSportEntries(rawUsers[user.id], user.activityTypes),
+          readFitbitSportWorkouts(rawUsers[user.id], user.activityTypes)
+        ),
+        readStrengthSessions(rawUsers[user.id])
       )
     }))
   };
@@ -2050,6 +2054,28 @@ app.get("/api/sport-data", (_request, response) => {
       error: errorText(error),
       dataFile: publicPath(SPORT_FILE)
     });
+  }
+});
+
+app.post("/api/sport-data/strength-sessions", (request, response) => {
+  let userId: string;
+  let session: ReturnType<typeof loggedStrengthFromBody>;
+  try {
+    const user = SPORT_USERS.find(({ id }) => id === request.body?.userId);
+    if (!user) throw new Error("Выберите пользователя.");
+    userId = user.id;
+    session = loggedStrengthFromBody(request.body);
+  } catch (error) {
+    response.status(400).json({ error: errorText(error) });
+    return;
+  }
+  try {
+    if (storeStrengthSessions(SPORT_FILE, userId, [session])) {
+      broadcast({ type: "sport-data-updated", updatedAt: new Date().toISOString() });
+    }
+    response.json({ data: loadSportData() });
+  } catch (error) {
+    response.status(500).json({ error: errorText(error) });
   }
 });
 

@@ -3410,3 +3410,165 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .inbody-stat { transition: none; }
 }
+
+.strength-button,
+.strength-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-blue);
+  font-weight: 500;
+}
+
+.strength-button svg,
+.strength-choice svg,
+.strength-history > summary > svg { flex-shrink: 0; }
+.strength-button:disabled,
+.strength-choice:disabled,
+.strength-set:disabled { cursor: default; opacity: .55; }
+.strength-button:hover:not(:disabled),
+.strength-choice:hover:not(:disabled) { background: var(--surface-tint); }
+.strength-primary { background: var(--primary); border-color: var(--primary); color: white; }
+.strength-primary:hover:not(:disabled) { background: var(--ink-blue); }
+.strength-trigger .strength-clock { border-inline-start: 1px solid currentColor; padding-inline-start: 8px; }
+.strength-trigger .strength-clock svg { display: none; }
+.strength-icon-button { width: 44px; padding: 0; flex-shrink: 0; }
+.strength-text-button { border-color: transparent; background: transparent; color: var(--primary); }
+.strength-danger { color: var(--coral); }
+
+.strength-dialog {
+  width: min(600px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  overflow: hidden;
+}
+.strength-dialog::backdrop { background: rgb(15 23 42 / 44%); }
+.strength-dialog-shell {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+.strength-dialog-header,
+.strength-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; }
+.strength-dialog-header { border-bottom: 1px solid var(--line); }
+.strength-dialog-header h2 { font-size: 20px; line-height: 1.25; margin: 0; }
+.strength-dialog-header .strength-clock { margin-top: 4px; color: var(--primary); }
+.strength-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: "Fira Code", monospace;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.strength-dialog-body { overflow-y: auto; overscroll-behavior-y: contain; padding: 16px; min-height: 0; }
+.strength-dialog-footer { border-top: 1px solid var(--line); }
+.strength-dialog-footer .strength-primary { flex-shrink: 0; }
+.strength-dialog-footer .strength-text-button { text-align: left; padding-inline: 8px; }
+.strength-error { margin: 0 0 12px; color: var(--coral); font-size: 14px; }
+
+.strength-picker { display: grid; gap: 8px; }
+.strength-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.strength-picker-heading h3 { font-size: 15px; margin: 0; }
+.strength-choices { display: grid; gap: 8px; }
+.strength-exercise-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.strength-choice {
+  justify-content: space-between;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.strength-current-exercise { grid-column: 1 / -1; width: 100%; background: var(--surface-soft); }
+.strength-set-form { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.strength-set-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.strength-set-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.strength-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+.strength-set-fields .strength-input { font-family: "Fira Code", monospace; }
+.strength-input:focus-visible,
+.strength-history summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.strength-edit-actions { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 4px; }
+
+.strength-history-list { display: grid; gap: 8px; margin-bottom: 14px; min-width: 0; }
+.strength-history { border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.strength-history > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--ink-blue);
+  cursor: pointer;
+  list-style: none;
+}
+.strength-history > summary::-webkit-details-marker { display: none; }
+.strength-history[open] > summary { border-bottom: 1px solid var(--line); }
+.strength-history[open] > summary .strength-chevron { transform: rotate(180deg); }
+.strength-history-heading { flex: 1; min-width: 0; font-size: 14px; }
+.strength-history-heading small { display: block; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.strength-history > .sport-fitbit-workout { margin: 0 10px 10px; }
+.strength-history .sport-fitbit-summary { min-height: 48px; padding: 8px 10px; }
+.strength-history .sport-fitbit-summary > svg:first-child,
+.strength-history .sport-fitbit-summary > .sport-fitbit-badge { display: none; }
+.strength-sets { margin: 0; min-width: 0; }
+.strength-dialog-body > .strength-sets { margin-top: 12px; }
+.strength-exercise-sets { padding: 10px 0; border-top: 1px solid var(--line); }
+.strength-exercise-sets dt { font-size: 14px; line-height: 1.35; font-weight: 500; overflow-wrap: anywhere; }
+.strength-exercise-sets dt small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; }
+.strength-exercise-sets dd { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; }
+.strength-history .strength-exercise-sets { padding-inline: 12px; }
+.strength-history .strength-exercise-sets:first-child { border-top: 0; }
+.strength-set {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--surface-tint);
+  color: var(--ink-blue);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.strength-set { min-height: 44px; border-color: var(--line); }
+button.strength-set:hover:not(:disabled),
+button.strength-set[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); }
+
+@media (max-width: 760px) {
+  .strength-dialog { width: 100%; max-height: 94dvh; margin: auto 0 0; border-radius: 8px 8px 0 0; }
+  .strength-dialog-footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 470px) {
+  .strength-set-form,
+  .strength-exercise-options { grid-template-columns: minmax(0, 1fr); }
+  .strength-dialog-header,
+  .strength-dialog-footer,
+  .strength-dialog-body { padding-inline: 12px; }
+  .strength-dialog-footer { gap: 4px; }
+}

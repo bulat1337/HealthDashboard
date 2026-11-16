@@ -24,12 +24,15 @@ import {
 import { ActivityPicker } from "./ActivityPicker";
 import { FitbitWorkoutDetails } from "./FitbitWorkoutDetails";
 import { WorkoutDeleteControl } from "./WorkoutDeleteControl";
+import { StrengthWorkout, StrengthWorkoutDetails } from "./StrengthWorkout";
+import { STRENGTH_PLANS } from "../strength";
 import { connectFitbit, deleteSportWorkouts, fetchSportData, updateSportDay } from "../api";
 import type {
   SportActivityCatalogEntry,
   SportActivityKey,
   SportData,
   SportEntry,
+  SportFitbitWorkout,
   SportMaxReps,
   SportUser
 } from "../types";
@@ -673,6 +676,9 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
   const selectedDateRunDistanceKm = selectedDateEntry?.manualRunDistanceKm !== undefined
     ? selectedDateEntry.manualRunDistanceKm : selectedDateEntry?.runDistanceKm ?? null;
   const selectedDateFitbitWorkouts = selectedDateEntry?.fitbitWorkouts ?? [];
+  const selectedDateStrengthSessions = selectedDateEntry?.strengthSessions ?? [];
+  const linkedFitbitIds = new Set(selectedDateStrengthSessions.map((session) => session.fitbitWorkoutId));
+  const standaloneFitbitWorkouts = selectedDateFitbitWorkouts.filter((workout) => !linkedFitbitIds.has(workout.exercise.id));
   const selectedDateMaxReps = selectedDateEntry?.maxReps ?? EMPTY_MAX_REPS;
   const selectedDateHasRun = selectedDateActivities.includes("run");
   const activeRepMetrics = REP_METRICS.filter((metric) => selectedDateActivities.includes(metric.activityKey));
@@ -797,6 +803,28 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
     }
   }
 
+  function renderFitbitWorkout(workout: SportFitbitWorkout, label?: string) {
+    return <FitbitWorkoutDetails key={workout.exercise.id} workout={workout}
+      label={label ?? STRENGTH_VARIANT_LABELS[workout.activityKey] ?? catalogByKey.get(workout.activityKey)?.label ?? workout.exercise.label}
+      Icon={ACTIVITY_ICONS[workout.activityKey] ?? Activity}>
+      <WorkoutDeleteControl hasFitbit fitbit={selectedUser?.fitbit} disabled={savingDate !== null}
+        onDelete={(alsoFitbit) => removeWorkouts(alsoFitbit, workout.exercise.id)} onConnect={allowFitbitDeletion} />
+    </FitbitWorkoutDetails>;
+  }
+
+  function showFinishedWorkout(nextData: SportData, date: string) {
+    ++dataRequest.current;
+    setData(nextData);
+    setIsLoading(false);
+    setError(null);
+    setDeleteMessage(null);
+    selectCalendarDate({
+      date: parseDateKey(date),
+      key: date,
+      inMonth: date.slice(0, 7) === dateKey(visibleMonth).slice(0, 7)
+    });
+  }
+
   async function saveActivities(nextActivities: SportActivityKey[]) {
     await saveSportDay(
       nextActivities,
@@ -909,6 +937,8 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </button>
           ))}
         </div>
+        {selectedUser && <StrengthWorkout key={selectedUser.id} userId={selectedUser.id}
+          entries={selectedUser.entries} dateFor={dateKey} onComplete={showFinishedWorkout} />}
       </section>
 
       <article
@@ -1014,6 +1044,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
               const activityDetails = activities
                 .map((activityKey) => catalogByKey.get(activityKey))
                 .filter((activity): activity is SportActivityCatalogEntry => Boolean(activity));
+              const strengthLabels = entry?.strengthSessions?.map(({ planId }) => STRENGTH_PLANS[planId].name);
 
               return (
                 <button
@@ -1036,7 +1067,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
                     .map((activity) => activity.label)
                     .join(", ") || "без занятий"}${
                     entry?.runDistanceKm ? `, ${formatDistanceKm(entry.runDistanceKm)} км` : ""
-                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}${entry?.fitbitWorkouts?.length ? ", автоматически из Fitbit" : ""}`}
+                  }${entry ? formatMaxRepsAria(entry.maxReps) : ""}${strengthLabels?.length ? `, ${strengthLabels.join(", ")}` : ""}${entry?.fitbitWorkouts?.length ? ", Fitbit" : ""}`}
                 >
                   <span className="sport-day-top"><span className="sport-day-number">{cell.date.getDate()}</span>
                     {entry?.fitbitWorkouts?.length ? <Watch className="sport-fitbit-mark" size={13} aria-hidden="true" /> : null}
@@ -1070,16 +1101,20 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
 
           {deleteMessage && <p className="sport-delete-message" role="status">{deleteMessage}</p>}
 
-          {selectedDateFitbitWorkouts.length > 0 && (
+          {selectedDateStrengthSessions.length > 0 && (
+            <section className="strength-history-list" key={`strength-${selectedUserId}-${selectedDate}`} aria-label="Силовые тренировки">
+              {selectedDateStrengthSessions.map((session) => {
+                const linked = selectedDateFitbitWorkouts.find((workout) => workout.exercise.id === session.fitbitWorkoutId);
+                return <StrengthWorkoutDetails key={session.id} session={session}>
+                  {linked && renderFitbitWorkout(linked, "Показатели")}
+                </StrengthWorkoutDetails>;
+              })}
+            </section>
+          )}
+
+          {standaloneFitbitWorkouts.length > 0 && (
             <section className="sport-fitbit-workouts" aria-label="Тренировки из Fitbit">
-              {selectedDateFitbitWorkouts.map((workout) => (
-                <FitbitWorkoutDetails key={workout.exercise.id} workout={workout}
-                  label={STRENGTH_VARIANT_LABELS[workout.activityKey] ?? catalogByKey.get(workout.activityKey)?.label ?? workout.exercise.label}
-                  Icon={ACTIVITY_ICONS[workout.activityKey] ?? Activity}>
-                  <WorkoutDeleteControl hasFitbit fitbit={selectedUser?.fitbit} disabled={savingDate !== null}
-                    onDelete={(alsoFitbit) => removeWorkouts(alsoFitbit, workout.exercise.id)} onConnect={allowFitbitDeletion} />
-                </FitbitWorkoutDetails>
-              ))}
+              {standaloneFitbitWorkouts.map((workout) => renderFitbitWorkout(workout))}
             </section>
           )}
 
@@ -1196,7 +1231,7 @@ export function SportDashboard({ today, refreshKey }: SportDashboardProps) {
             </div>
           ) : null}
 
-          {selectedDateActivities.length > 0 || selectedDateSick || selectedDateFitbitWorkouts.length > 0 ? (
+          {selectedDateActivities.length > 0 || selectedDateSick || selectedDateFitbitWorkouts.length > 0 || selectedDateStrengthSessions.length > 0 ? (
             <WorkoutDeleteControl key={`delete-${selectedUserId}-${selectedDate}`} wholeDay
               hasFitbit={selectedDateFitbitWorkouts.length > 0} fitbit={selectedUser?.fitbit} disabled={savingDate !== null}
               onDelete={(alsoFitbit) => removeWorkouts(alsoFitbit)} onConnect={allowFitbitDeletion} />

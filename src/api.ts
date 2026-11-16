@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import type { FitbitDataResponse } from "./fitbit-types";
 import type { InBodyInput, InBodyRecord, InBodyResponse } from "./inbody-types";
+import type { LoggedStrengthSession } from "./strength";
 
 export async function fetchInBodyData(signal?: AbortSignal): Promise<InBodyResponse> {
   const response = await fetch("/api/inbody-data", { signal });
@@ -75,6 +76,16 @@ export async function fetchSportData(signal?: AbortSignal): Promise<SportDataRes
     throw new Error(text || `HTTP ${response.status}`);
   }
   return response.json() as Promise<SportDataResponse>;
+}
+
+export async function finishStrengthSession(userId: string, session: LoggedStrengthSession): Promise<SportDataResponse> {
+  const response = await fetch("/api/sport-data/strength-sessions", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...session, userId })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "Не удалось сохранить тренировку. Попробуйте ещё раз.");
+  return result;
 }
 
 export async function deleteSportWorkouts(input: SportWorkoutDelete) {

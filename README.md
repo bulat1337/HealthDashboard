@@ -92,6 +92,25 @@ Supported configuration:
 
 Local files under `data/assets` are served from `/local-assets/*`, which is useful for private relationship photos kept outside Git.
 
+### Strength workouts
+
+The sport calendar stores completed strength workouts in `SPORT_DATA_FILE`.
+The active workout and its timer resume in the same browser. Fitbit sessions
+appear alongside their sets once matched by date and time.
+
+To import Obsidian `GYM/Day N.md` notes, run:
+
+```bash
+npm run sport:gym:import -- "/path/to/GYM"
+npm run sport:gym:import -- "/path/to/GYM" --write
+```
+
+The importer uses the files' creation dates in Europe/Moscow. Run it on the
+original files to retain those dates. Pass the destination's `SPORT_DATA_FILE`
+in the command environment if it differs from the default. When importing on
+the deployed host, stop the dashboard while writing to its sport file.
+The import preserves other entries and skips workout IDs already present.
+
 Vite embeds `VITE_*` settings during `npm run build`. Production builds must load
 the deployment’s `.env.local`; a build using the example defaults will replace
 the relationship title, dates and photo with demo values. Verify these settings

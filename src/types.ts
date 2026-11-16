@@ -207,6 +207,7 @@ export type SportEntry = {
   manualActivities?: SportActivityKey[];
   manualRunDistanceKm?: number | null;
   fitbitWorkouts?: SportFitbitWorkout[];
+  strengthSessions?: (import("./strength").StrengthSession & { fitbitWorkoutId?: string })[];
 };
 
 export type SportFitbitWorkout = {

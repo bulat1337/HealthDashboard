@@ -118,8 +118,15 @@ export function deleteSportWorkoutsFile(
   }
   for (const id of ids) deletedIds.add(id);
   const entries = { ...object(user.entries) };
-  if ("date" in target) delete entries[target.date];
+  const strengthSessions = { ...object(user.strengthSessions) };
+  if ("date" in target) {
+    delete entries[target.date];
+    for (const [id, session] of Object.entries(strengthSessions)) {
+      if (object(session).date === target.date) delete strengthSessions[id];
+    }
+  }
   users[userId] = { ...user, entries, deletedFitbitWorkoutIds: [...deletedIds],
+    ...(user.strengthSessions ? { strengthSessions } : {}),
     fitbitWorkouts: workouts.filter(({ exercise }) => !deletedIds.has(exercise.id)) };
   raw.users = users;
   raw.schemaVersion = Math.max(Number(raw.schemaVersion) || 1, 6);
