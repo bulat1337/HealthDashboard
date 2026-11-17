@@ -15,6 +15,7 @@ import {
   Flower2,
   Footprints,
   MoveDown,
+  Mountain,
   RefreshCw,
   Stethoscope,
   Users,
@@ -127,6 +128,7 @@ const ACTIVITY_ICONS: Record<SportActivityKey, LucideIcon> = {
   strength_upper: Dumbbell,
   strength_whole: Dumbbell,
   cycling: Bike,
+  climbing: Mountain,
   sup: Waves,
   pull_ups: ChevronsUp,
   push_ups: MoveDown
@@ -146,6 +148,7 @@ const STRENGTH_VARIANT_LABELS: Record<SportActivityKey, string> = {
   strength_upper: "Силовая · верх тела",
   strength_whole: "Силовая · всё тело",
   cycling: "Велотренировка",
+  climbing: "Скалодром",
   sup: "Сап",
   pull_ups: "Подтягивания",
   push_ups: "Отжимания"

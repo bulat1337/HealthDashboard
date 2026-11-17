@@ -183,6 +183,7 @@ export type SportActivityKey =
   | "strength_upper"
   | "strength_whole"
   | "cycling"
+  | "climbing"
   | "sup"
   | "pull_ups"
   | "push_ups";

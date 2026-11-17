@@ -7,7 +7,7 @@ import { deleteSportWorkoutsFile, fitbitSportActivity, mergeSportFitbitEntries, 
 import type { SportActivityKey, SportEntry } from "../src/types.js";
 import type { FitbitExercise } from "../src/fitbit-types.js";
 
-const allowed: SportActivityKey[] = ["run", "strength_whole", "strength_upper", "yoga", "pilates", "cycling", "sup", "pull_ups", "push_ups"];
+const allowed: SportActivityKey[] = ["run", "strength_whole", "strength_upper", "yoga", "pilates", "cycling", "climbing", "sup", "pull_ups", "push_ups"];
 const exercise = (overrides: Partial<FitbitExercise> = {}): FitbitExercise => ({
   id: "session-1", date: "2026-11-08", start: "2026-11-08T06:00:00Z", label: "Morning run", type: "RUNNING",
   durationMinutes: 25, distanceKm: 3.14, calories: 250, averageHeartRate: 135,
@@ -30,6 +30,8 @@ test("Fitbit maps only catalogued types; walks and generic workouts are excluded
     assert.equal(fitbitSportActivity(exercise({ type }), allowed), key);
   }
   assert.equal(fitbitSportActivity(exercise(), ["yoga"]), null);
+  assert.equal(fitbitSportActivity(exercise({ type: "INDOOR_CLIMBING" }), allowed), "climbing");
+  assert.equal(fitbitSportActivity(exercise({ type: "INDOOR_CLIMBING" }), ["run"]), null);
 });
 
 test("Walking migration replaces all old formats with 3.14 km runs once and backs up the original", (t) => {
@@ -67,6 +69,12 @@ test("Calendar sync is idempotent, isolates people, preserves all provider field
   syncFitbitSportFile(file, "bulat", [exercise({ distanceKm: 4 })], allowed);
   assert.equal(read().users.bulat.fitbitWorkouts.length, 2);
   assert.equal(read().users.bulat.fitbitWorkouts[0].exercise.distanceKm, 4);
+  const climbing = { ...strength, type: "INDOOR_CLIMBING", label: "Climbing" };
+  syncFitbitSportFile(file, "bulat", [climbing], allowed);
+  const reclassified = readFitbitSportWorkouts(read().users.bulat, allowed);
+  assert.equal(reclassified.length, 2);
+  assert.equal(reclassified.find(({ exercise }) => exercise.id === strength.id)?.activityKey, "climbing");
+  assert.deepEqual(reclassified.find(({ exercise }) => exercise.id === strength.id)?.exercise, climbing);
 });
 
 test("Successful source windows remove deleted or reclassified sessions; older calendar history survives", (t) => {

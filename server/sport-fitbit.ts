@@ -17,6 +17,7 @@ const ACTIVITY_TYPES: Record<string, SportActivityKey> = {
   BIKING: "cycling", MOUNTAIN_BIKE: "cycling", OUTDOOR_BIKE: "cycling",
   STATIONARY_BIKE: "cycling", SPINNING: "cycling",
   ASSAULT_BIKE: "cycling", HAND_CYCLING: "cycling", ELECTRIC_BIKE: "cycling",
+  INDOOR_CLIMBING: "climbing",
   PADDLEBOARDING: "sup",
   PULL_UPS: "pull_ups", PUSH_UPS: "push_ups",
 };
