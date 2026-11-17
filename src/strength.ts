@@ -17,6 +17,7 @@ export const STRENGTH_EXERCISES = {
   legExtension: "Разгибание ног",
   legPress: "Жим ногами сидя",
   legRaise: "Подъём ног на пресс",
+  reverseCrunch: "Обратные скручивания",
   cableCrunch: "Скручивания на блоке (монах)",
   seatedCrunch: "Скручивания в тренажёре",
   inclinePress: "Жим гантелей на наклонной скамье",
@@ -44,7 +45,7 @@ export const STRENGTH_PLANS = {
   legs: {
     name: "Ноги + Пресс",
     activityKey: "strength_lower",
-    exercises: [exercise.squat, exercise.legRaise, exercise.legExtension, exercise.cableCrunch,
+    exercises: [exercise.squat, exercise.legRaise, exercise.reverseCrunch, exercise.legExtension, exercise.cableCrunch,
       exercise.legCurl, exercise.legPress, exercise.seatedCrunch]
   },
   chest: {
@@ -67,7 +68,7 @@ export type StrengthSession = {
   planId: StrengthPlanId;
   sets: StrengthSet[];
 } & (
-  { source: "obsidian" } |
+  { source: "obsidian" | "manual" } |
   { source: "dashboard"; startedAt: string; endedAt: string }
 );
 export type LoggedStrengthSession = Extract<StrengthSession, { source: "dashboard" }>;

@@ -59,7 +59,7 @@ export function readStrengthSessions(rawUser: unknown): StrengthSession[] {
     const session = object(value);
     return typeof session.id === "string" && typeof session.date === "string" &&
       isStrengthPlan(session.planId) && Array.isArray(session.sets) && session.sets.length > 0 &&
-      (session.source === "obsidian" || (session.source === "dashboard" &&
+      (session.source === "obsidian" || session.source === "manual" || (session.source === "dashboard" &&
         typeof session.startedAt === "string" && typeof session.endedAt === "string"));
   });
 }
@@ -86,7 +86,7 @@ function matchFitbit(sessions: StrengthSession[], workouts: SportFitbitWorkout[]
     ids.set(session.id, exercise.id);
     used.add(exercise.id);
   }
-  const historical = sessions.filter((session) => session.source === "obsidian");
+  const historical = sessions.filter((session) => session.source !== "dashboard");
   const unmatched = candidates.filter(({ exercise }) => !used.has(exercise.id));
   if (historical.length === 1 && unmatched.length === 1) {
     ids.set(historical[0].id, unmatched[0].exercise.id);

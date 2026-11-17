@@ -54,6 +54,13 @@ test("adds Fitbit links after sync without folding distinct sessions into one", 
   assert.equal(after.fitbitWorkouts?.length, 2);
   assert.equal(mergeStrengthEntries(mergeSportFitbitEntries([], fitbit.slice(0, 1)), [logged])[0]
     .strengthSessions?.[0].fitbitWorkoutId, undefined);
+
+  const manual = { id: "manual-history", date, planId: "legs" as const, source: "manual" as const, sets: logged.sets };
+  assert.deepEqual(readStrengthSessions({ strengthSessions: { [manual.id]: manual } }), [manual]);
+  const [historical] = mergeStrengthEntries(mergeSportFitbitEntries([], fitbit.slice(0, 1)), [manual]);
+  assert.equal(historical.strengthSessions?.[0].fitbitWorkoutId, "morning");
+  assert.equal(mergeStrengthEntries(mergeSportFitbitEntries([], fitbit), [manual])[0]
+    .strengthSessions?.[0].fitbitWorkoutId, undefined);
 });
 
 test("retries preserve a single completed session and clearing a day removes its sets", (context) => {

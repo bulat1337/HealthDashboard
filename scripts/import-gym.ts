@@ -36,6 +36,7 @@ addAliases(exercise.legCurl, "Сгибание ног, задняя часть",
 addAliases(exercise.legExtension);
 addAliases(exercise.legPress);
 addAliases(exercise.legRaise, "Подъем ног", "Подъем ног в висе", "Подъем ног на бруьях", "Подъем ног на брусьях");
+addAliases(exercise.reverseCrunch);
 addAliases(exercise.cableCrunch, "Монах", "Monk");
 addAliases(exercise.seatedCrunch, "Пресс сидя чередуя");
 addAliases(exercise.inclinePress, "Жим полулёжа", "Жим гантелей полулёжа", "Грудь полулёжа");
@@ -48,7 +49,7 @@ addAliases(exercise.arnoldCurl, "Arnold curl");
 addAliases(exercise.elevatedPushUps, "Отжимания с возвышенностью(2 платформы)", "Отжимания на возвышенности",
   "Отжимания с возвышенностью");
 
-const bodyweight = new Set<string>([exercise.pullUps, exercise.closePullUps, exercise.legRaise, exercise.elevatedPushUps]);
+const bodyweight = new Set<string>([exercise.pullUps, exercise.closePullUps, exercise.legRaise, exercise.reverseCrunch, exercise.elevatedPushUps]);
 const variants: Record<string, string> = {
   "lat pull down (close grip)": "Узкий хват",
   "подъем ног в висе": "В висе",
